@@ -1,5 +1,5 @@
 {
-	"name": "template-npm-pub-ts",
+	"name": "@m234/config",
 	"version": "0.0.0",
 	"description": "Template repo for creating public packages written in typescript. Lintable, testable and releasable.",
 	"type": "module",
@@ -23,12 +23,12 @@
 	],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/Mopsgamer/template-npm-pub-ts.git"
+		"url": "https://github.com/Mopsgamer/config.git"
 	},
 	"bugs": {
-		"url": "https://github.com/Mopsgamer/template-npm-pub-ts/issues"
+		"url": "https://github.com/Mopsgamer/config/issues"
 	},
-	"homepage": "https://github.com/Mopsgamer/template-npm-pub-ts",
+	"homepage": "https://github.com/Mopsgamer/config",
 	"release-it": {
 		"hooks": {
 			"before:init": "pnpm prerelease"

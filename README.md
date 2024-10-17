@@ -1,11 +1,11 @@
-# template-npm-pub-ts
+# config
 
-[![npm version](https://img.shields.io/npm/v/template-npm-pub-ts.svg?style=flat)](https://www.npmjs.com/package/template-npm-pub-ts)
-[![npm downloads](https://img.shields.io/npm/dm/template-npm-pub-ts.svg?style=flat)](https://www.npmjs.com/package/template-npm-pub-ts)
-[![github](https://img.shields.io/github/stars/Mopsgamer/template-npm-pub-ts.svg?style=flat)](https://github.com/Mopsgamer/template-npm-pub-ts)
-[![github issues](https://img.shields.io/github/issues/Mopsgamer/template-npm-pub-ts.svg?style=flat)](https://github.com/Mopsgamer/template-npm-pub-ts/issues)
+[![npm version](https://img.shields.io/npm/v/@m234/config.svg?style=flat)](https://www.npmjs.com/package/@m234/config)
+[![npm downloads](https://img.shields.io/npm/dm/@m234/config.svg?style=flat)](https://www.npmjs.com/package/@m234/config)
+[![github](https://img.shields.io/github/stars/Mopsgamer/config.svg?style=flat)](https://github.com/Mopsgamer/config)
+[![github issues](https://img.shields.io/github/issues/Mopsgamer/config.svg?style=flat)](https://github.com/Mopsgamer/config/issues)
 
-...Description...
+Node.js config library for command-line tools with strict type check.
 
 ## Features
 
@@ -14,7 +14,7 @@
 ## Install
 
 ```bash
-npm i ...
+npm i @m234/config
 ```
 
 ## Usage
