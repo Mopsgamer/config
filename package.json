@@ -1,6 +1,6 @@
 {
 	"name": "@m234/config",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Template repo for creating public packages written in typescript. Lintable, testable and releasable.",
 	"type": "module",
 	"scripts": {
