@@ -107,15 +107,15 @@ export namespace Types {
 	/**
      * @public
      */
-	export function literal<T extends string | number | boolean>(choices: T[]): TypeValidator<T> {
+	export function literal<T extends string | number | boolean>(choices: Set<T>): TypeValidator<T> {
 		const validator = new TypeValidator<T>(
-			choices.map(choice => format('%o', choice)).join('|'),
+			Array.from(choices, choice => format('%o', choice)).join('|'),
 			value => {
-				if (choices.includes(value as T)) {
+				if (choices.has(value as T)) {
 					return;
 				}
 
-				return `The value is invalid. Choices: ${choices.map(String).join(', ')}.`;
+				return `The value is invalid. Choices: ${Array.from(choices, String).join(', ')}.`;
 			},
 			(argv): T => {
 				let value: string | number | boolean | undefined;

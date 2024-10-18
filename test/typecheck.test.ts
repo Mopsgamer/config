@@ -7,6 +7,14 @@ it('object', () => {
 	assert.ok(config.Types.object().check({}, 0));
 });
 
+it('array', () => {
+	assert.ok(config.Types.array().check(['', {}], 0));
+	assert.ok(config.Types.array(config.Types.string()).check(['', ''], 0));
+	assert.ok(!config.Types.array(config.Types.string()).check(['', {}], 0));
+	assert.ok(config.Types.array(config.Types.literal(new Set([0, '']))).check(['', 0], 0));
+	assert.ok(!config.Types.array(config.Types.literal(new Set([0, '']))).check(['', 0, {}], 0));
+});
+
 it('any', () => {
 	assert.ok(config.Types.any.check({}, 0));
 	assert.ok(config.Types.any.check(-1, 0));
@@ -35,4 +43,14 @@ it('string', () => {
 	assert.ok(!config.Types.string().check(0, 0));
 	assert.ok(config.Types.string().check('', 0));
 	assert.ok(config.Types.string().check('str', 0));
+});
+
+it('literal', () => {
+	const s = new Set(['', 0, true]);
+	assert.ok(!config.Types.literal(s).check(1, 0));
+	assert.ok(!config.Types.literal(s).check(false, 0));
+	assert.ok(!config.Types.literal(s).check('a', 0));
+	assert.ok(config.Types.literal(s).check('', 0));
+	assert.ok(config.Types.literal(s).check(0, 0));
+	assert.ok(config.Types.literal(s).check(true, 0));
 });
