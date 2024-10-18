@@ -5,9 +5,10 @@ import {format} from 'node:util';
 import * as yaml from 'yaml';
 import {type ChalkInstance, Chalk} from 'chalk';
 import ansiRegex from 'ansi-regex';
+import {type TypeValidator, Types} from './validate.js';
 
 /**
- * For each property of the configuration we have an error message.
+ * For each configuration key of the configuration we have an error message.
  * @public
  */
 export type ConfigCheckMap<ConfigType extends ConfigRaw> = Map<keyof ConfigType, string>;
@@ -27,252 +28,12 @@ export function isShowSources(value: unknown): value is ShowSourcesType {
 
 /**
  * Command-line configuration structure.
- * @see {@link configKeyList} Before adding new properties.
  * @public
  */
 export type ConfigRaw = Record<string, unknown>;
 
 export function isConfigRaw(value: unknown): value is ConfigRaw {
 	return value?.constructor === Object;
-}
-
-export class ConfigValidator<T = any> {
-	constructor(
-		public typeName: string,
-		public getMessage: (value: unknown) => string | undefined,
-		public parse: (value: string) => T,
-	) {}
-
-	check(value: unknown, error: string | undefined): value is T {
-		return error === undefined;
-	}
-}
-
-/**
- * @public
- */
-// eslint-disable-next-line @typescript-eslint/no-namespace
-export namespace Validate {
-	/**
-     * @public
-     */
-	export const any = new ConfigValidator<any>(
-		'any',
-		value => {
-			const validatorList = [array(), object(), boolean, string(), number()];
-			for (const validator of validatorList) {
-				if (validator.check(value, validator.getMessage(value))) {
-					return;
-				}
-			}
-
-			return `Can not be represented as any: ${String(value)}.`;
-		},
-		argv => {
-			const parsed: any = yaml.parse(argv) as unknown;
-			const validator = any;
-			const message = validator.getMessage(parsed);
-			if (!validator.check(parsed, message)) {
-				throw new Error(message);
-			}
-
-			return parsed; // eslint-disable-line @typescript-eslint/no-unsafe-return
-		},
-	);
-	/**
-     * @public
-     */
-	export const array = <T = any>(type?: ConfigValidator<T>) => {
-		const validator = new ConfigValidator<T[]>(
-			`${type?.typeName ?? 'any'}[]`,
-			value => {
-				if (Array.isArray(value)) {
-					if (type === undefined) {
-						return;
-					}
-
-					const badElementList = value.map(element => type.getMessage(element)).filter(element => element !== undefined);
-					if (badElementList.length > 0) {
-						const list = badElementList.map((element, index) => `${index}: ${element}`).join('\n');
-						return `The value should be a typed array. Found bad elements:\n${list}`;
-					}
-
-					return;
-				}
-
-				return 'The value should be an array.';
-			},
-			(argv): any => argv.split(/[, ]/).map(element => (type ?? any).parse(element)), // eslint-disable-line @typescript-eslint/no-unsafe-return
-		);
-
-		return validator;
-	};
-
-	/**
-     * @public
-     */
-	export const literal = <T extends string | number | boolean>(choices: T[]): ConfigValidator<T> => {
-		const validator = new ConfigValidator<T>(
-			choices.map(choice => format('%o', choice)).join('|'),
-			value => {
-				if (choices.includes(value as T)) {
-					return;
-				}
-
-				return `The value is invalid. Choices: ${choices.map(String).join(', ')}.`;
-			},
-			(argv): T => {
-				let value: string | number | boolean | undefined;
-				const validatorList = [boolean, number(), string()];
-				for (const validator of validatorList) {
-					if (validator.check(value, validator.getMessage(value))) {
-						value = validator.parse(argv);
-						break;
-					}
-				}
-
-				const validator = literal(choices);
-				const message = validator.getMessage(value as T);
-				if (!literal(choices).check(value as T, message)) {
-					throw new Error(message);
-				}
-
-				return value as T;
-			},
-		);
-
-		return validator;
-	};
-
-	/**
-     * @public
-     */
-	export const boolean = new ConfigValidator<boolean>(
-		'boolean',
-		value => {
-			if (typeof value === 'boolean') {
-				return;
-			}
-
-			return 'The value should be a boolean.';
-		},
-		argv => {
-			const bool0 = ['false', '0'];
-			const bool1 = ['true', '1'];
-			if (bool0.includes(argv)) {
-				return false;
-			}
-
-			if (bool1.includes(argv)) {
-				return false;
-			}
-
-			throw new Error(`The value should be a boolean: ${bool1.concat(bool0).join(', ')}.`);
-		},
-	);
-
-	/**
-     * @public
-     */
-	export const object = <KeyT extends string = string, ValueT = unknown>(): ConfigValidator<Record<KeyT, ValueT>> => {
-		const validator = new ConfigValidator<Record<KeyT, ValueT>>(
-			'object',
-			value => {
-				if (value?.constructor === Object) {
-					return;
-				}
-
-				return 'The value should be an object.';
-			},
-			(argv): Record<KeyT, ValueT> => {
-				const parsed = yaml.parse(argv) as Record<KeyT, ValueT>;
-				const validator = object();
-				const message = validator.getMessage(parsed);
-				if (!validator.check(parsed, message)) {
-					throw new Error(message);
-				}
-
-				return parsed;
-			},
-		);
-
-		return validator;
-	};
-
-	/**
-     * @public
-     */
-	export const string = (): ConfigValidator<string> => {
-		const validator = new ConfigValidator<string>(
-			'string',
-			value => {
-				if (typeof value === 'string') {
-					return;
-				}
-
-				return 'The value should be a string.';
-			},
-			argv => argv,
-		);
-
-		return validator;
-	};
-
-	/**
-     * @public
-     */
-	export const number = (): ConfigValidator<number> => {
-		const validator = new ConfigValidator<number>(
-			'number',
-			value => {
-				if (typeof value === 'number' && ((value > Number.MAX_SAFE_INTEGER && value < Number.MIN_SAFE_INTEGER) || Math.abs(value) === Infinity)) {
-					return;
-				}
-
-				return 'The value should be a number.';
-			},
-			argv => {
-				const validator = number();
-				const parsed = Number(argv);
-				const message = validator.getMessage(parsed);
-				if (!validator.check(parsed, message)) {
-					throw new Error(message);
-				}
-
-				return parsed;
-			},
-		);
-
-		return validator;
-	};
-
-	/**
-     * @public
-     */
-	export const integer = (): ConfigValidator<number> => {
-		const validator = new ConfigValidator<number>(
-			'integer',
-			value => {
-				if (number().getMessage(value) !== undefined || !Number.isInteger(value)) { // Add options for number validator here if provided
-					return;
-				}
-
-				return 'The value should be an integer.';
-			},
-			argv => {
-				const validator = number();
-				const parsed = Number(argv);
-				const message = validator.getMessage(parsed);
-				if (!validator.check(parsed, message)) {
-					throw new Error(message);
-				}
-
-				return parsed;
-			},
-		);
-
-		return validator;
-	};
 }
 
 /**
@@ -348,12 +109,8 @@ export type HighlightOptions = {
  * @public
  */
 export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
-	/**
-	 * Do not change this value directly.
-	 * @see {@link configManager}.
-	 */
 	private data: Record<string, unknown> = {};
-	private readonly configValidation = new Map<keyof ConfigType, ConfigValidator>();
+	private readonly configValidation = new Map<keyof ConfigType, TypeValidator>();
 	private readonly dataDefault: Record<string, unknown> = {};
 
 	constructor(
@@ -361,13 +118,13 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	) {}
 
 	/**
-     * Get errors (if any) for every property if the value is an object. Otherwise returns the "bad object" message.
+     * @returns Errors (if any) for every key if the value is an object. Otherwise returns the "bad object" message.
      */
 	fail(data: unknown): ConfigCheckMap<ConfigType> | string {
-		const propertyStack: ConfigCheckMap<ConfigType> = new Map();
+		const keyMap: ConfigCheckMap<ConfigType> = new Map();
 		const object = data as Record<string, unknown>;
 		if (object?.constructor !== Object) {
-			return Validate.object().getMessage(object)!;
+			return Types.object().fail(object)!;
 		}
 
 		for (const key in object) {
@@ -382,10 +139,10 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 				continue;
 			}
 
-			propertyStack.set(key, message);
+			keyMap.set(key, message);
 		}
 
-		return propertyStack;
+		return keyMap;
 	}
 
 	/**
@@ -400,17 +157,17 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	/**
 	 * Get type checker for the key.
 	 */
-	getValidator<T extends keyof ConfigType>(key: T): ConfigValidator | undefined;
-	getValidator(key: string): ConfigValidator | undefined {
+	getValidator<T extends keyof ConfigType>(key: T): TypeValidator | undefined;
+	getValidator(key: string): TypeValidator | undefined {
 		return this.configValidation.get(key);
 	}
 
 	/**
 	 * Define type checker for the key.
 	 */
-	setValidator<T extends keyof ConfigType & string>(key: T, defaultValue: ConfigType[T], type: ConfigValidator): this {
+	setValidator<T extends keyof ConfigType & string>(key: T, defaultValue: ConfigType[T], type: TypeValidator): this {
 		this.configValidation.set(key, type);
-		const errorMessage = type.getMessage(defaultValue);
+		const errorMessage = type.fail(defaultValue);
 		if (errorMessage !== undefined) {
 			throw new TypeError(`Invalid default value preset for configuration key ${format(key)} - ${errorMessage}`);
 		}
@@ -441,12 +198,12 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 			return;
 		}
 
-		return type.getMessage(value);
+		return type.fail(value);
 	}
 
 	/**
-     * Loads the config from the file {@link path}.
-     * @returns The error message for each invalid property.
+     * Loads the config from the file in {@link path}.
+     * @returns The error message for each invalid configuration key.
      */
 	failLoad(): ConfigCheckMap<ConfigType> | string | undefined {
 		const parsed: unknown = existsSync(this.path) ? yaml.parse(readFileSync(this.path).toString()) : undefined;
@@ -474,7 +231,7 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	}
 
 	/**
-     * Saves the partial config to the file. If there are no settings, the file will be deleted, if exists.
+     * Saves the partial config to the file {@link path}. If there are no keys, the file will be deleted (if exists).
      * @return Error message for invalid write operation.
      */
 	failSave(): string | undefined {
@@ -498,10 +255,10 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	}
 
 	/**
-     * Sets a new value for the specified config property.
+     * Sets a new value for the specified configuration key.
      * Expects a valid value.
-     * @param key The name of the config property.
-     * @param value The new value for the config property.
+     * @param key The name of the configuration key.
+     * @param value The new value for the configuration key.
      */
 	failSet<T extends keyof ConfigType>(key: T, value: ConfigType[T]): string | undefined;
 	failSet(key: string, value: unknown): string | undefined;
@@ -515,23 +272,23 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	}
 
 	/**
-     * Deletes the specified property from the config.
-     * If the property is not specified, then all properties will be deleted.
-     * @param key The config property.
+     * Deletes the specified configuration key from the config.
+     * If the configuration key is not specified, then all properties will be deleted.
+     * @param key The configuration key.
+	 * @returns An error message if the key does not exist.
      */
-	failUnset<T extends keyof ConfigType>(key?: T): this;
-	failUnset(key?: string): this;
-	failUnset(key?: string): this {
+	failUnset<T extends keyof ConfigType>(key?: T): string | undefined;
+	failUnset(key?: string): string | undefined;
+	failUnset(key?: string): string | undefined {
 		if (key === undefined) {
 			for (const key of Object.keys(this.data)) {
 				delete this.data[key]; // eslint-disable-line @typescript-eslint/no-dynamic-delete
 			}
 
-			return this;
+			return;
 		}
 
-		delete this.data[key]; // eslint-disable-line @typescript-eslint/no-dynamic-delete
-		return this;
+		return delete this.data[key] ? undefined : `Unable to unset the key: ${key}`; // eslint-disable-line @typescript-eslint/no-dynamic-delete
 	}
 
 	/**
@@ -543,9 +300,9 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	}
 
 	/**
-     * @param key The config property.
+     * @param key The configuration key.
      * @param real The options.
-     * @returns The value for the specified property.
+     * @returns The value for the specified key.
      */
 	get<T extends keyof ConfigType>(key: T, options: ConfigManagerGetOptions & {real?: false}): ConfigType[T] | undefined;
 	get<T extends keyof ConfigType>(key: T, options?: ConfigManagerGetOptions & {real: true}): ConfigType[T];
@@ -556,7 +313,7 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 		if (real && value === undefined) {
 			value = this.dataDefault[key];
 			if (value === undefined) {
-				throw new Error(`Excpected default value for config property '${key}'.`);
+				throw new Error(`Excpected default value for configuration key: ${key}.`);
 			}
 		}
 
@@ -670,3 +427,5 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 		return colored;
 	}
 }
+
+export * from './validate.js';
