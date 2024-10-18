@@ -3,8 +3,7 @@ import {
 } from 'node:fs';
 import {format} from 'node:util';
 import * as yaml from 'yaml';
-import {type ChalkInstance} from 'chalk';
-import {type Command, type Option} from 'commander';
+import {type ChalkInstance, Chalk} from 'chalk';
 import ansiRegex from 'ansi-regex';
 
 /**
@@ -37,23 +36,16 @@ export function isConfigRaw(value: unknown): value is ConfigRaw {
 	return value?.constructor === Object;
 }
 
-export type ConfigValidator<T = unknown> = {
-	typeName: string;
-	getMessage(value: unknown): string | undefined;
-	check(value: unknown, message: string | undefined): value is T;
-};
+export class ConfigValidator<T = any> {
+	constructor(
+		public typeName: string,
+		public getMessage: (value: unknown) => string | undefined,
+		public parse: (value: string) => T,
+	) {}
 
-export function createConfigValidator<T>(typeName: string, getMessage: (value: unknown) => string | undefined): ConfigValidator<T> {
-	return {
-		typeName,
-		/**
-         * @returns Error message or undefined if the value satisfies the type.
-         */
-		getMessage,
-		check(value: unknown, error: string | undefined): value is T {
-			return error === undefined;
-		},
-	};
+	check(value: unknown, error: string | undefined): value is T {
+		return error === undefined;
+	}
 }
 
 /**
@@ -64,8 +56,34 @@ export namespace Validate {
 	/**
      * @public
      */
-	export const array = <T>(type?: ConfigValidator<T>) => {
-		const validator: ConfigValidator<T[]> = createConfigValidator(
+	export const any = new ConfigValidator<any>(
+		'any',
+		value => {
+			const validatorList = [array(), object(), boolean, string(), number()];
+			for (const validator of validatorList) {
+				if (validator.check(value, validator.getMessage(value))) {
+					return;
+				}
+			}
+
+			return `Can not be represented as any: ${String(value)}.`;
+		},
+		argv => {
+			const parsed: any = yaml.parse(argv) as unknown;
+			const validator = any;
+			const message = validator.getMessage(parsed);
+			if (!validator.check(parsed, message)) {
+				throw new Error(message);
+			}
+
+			return parsed; // eslint-disable-line @typescript-eslint/no-unsafe-return
+		},
+	);
+	/**
+     * @public
+     */
+	export const array = <T = any>(type?: ConfigValidator<T>) => {
+		const validator = new ConfigValidator<T[]>(
 			`${type?.typeName ?? 'any'}[]`,
 			value => {
 				if (Array.isArray(value)) {
@@ -84,6 +102,7 @@ export namespace Validate {
 
 				return 'The value should be an array.';
 			},
+			(argv): any => argv.split(/[, ]/).map(element => (type ?? any).parse(element)), // eslint-disable-line @typescript-eslint/no-unsafe-return
 		);
 
 		return validator;
@@ -92,8 +111,8 @@ export namespace Validate {
 	/**
      * @public
      */
-	export const literal = <T extends string | number>(choices: T[]): ConfigValidator<T> => {
-		const validator: ConfigValidator<T> = createConfigValidator(
+	export const literal = <T extends string | number | boolean>(choices: T[]): ConfigValidator<T> => {
+		const validator = new ConfigValidator<T>(
 			choices.map(choice => format('%o', choice)).join('|'),
 			value => {
 				if (choices.includes(value as T)) {
@@ -102,23 +121,23 @@ export namespace Validate {
 
 				return `The value is invalid. Choices: ${choices.map(String).join(', ')}.`;
 			},
-		);
-
-		return validator;
-	};
-
-	/**
-     * @public
-     */
-	export const boolean = (): ConfigValidator<boolean> => {
-		const validator: ConfigValidator<boolean> = createConfigValidator(
-			'boolean',
-			value => {
-				if (typeof value === 'boolean') {
-					return;
+			(argv): T => {
+				let value: string | number | boolean | undefined;
+				const validatorList = [boolean, number(), string()];
+				for (const validator of validatorList) {
+					if (validator.check(value, validator.getMessage(value))) {
+						value = validator.parse(argv);
+						break;
+					}
 				}
 
-				return 'The value should be a boolean.';
+				const validator = literal(choices);
+				const message = validator.getMessage(value as T);
+				if (!literal(choices).check(value as T, message)) {
+					throw new Error(message);
+				}
+
+				return value as T;
 			},
 		);
 
@@ -128,8 +147,35 @@ export namespace Validate {
 	/**
      * @public
      */
-	export const object = (): ConfigValidator<Record<string, unknown>> => {
-		const validator: ConfigValidator<Record<string, unknown>> = createConfigValidator(
+	export const boolean = new ConfigValidator<boolean>(
+		'boolean',
+		value => {
+			if (typeof value === 'boolean') {
+				return;
+			}
+
+			return 'The value should be a boolean.';
+		},
+		argv => {
+			const bool0 = ['false', '0'];
+			const bool1 = ['true', '1'];
+			if (bool0.includes(argv)) {
+				return false;
+			}
+
+			if (bool1.includes(argv)) {
+				return false;
+			}
+
+			throw new Error(`The value should be a boolean: ${bool1.concat(bool0).join(', ')}.`);
+		},
+	);
+
+	/**
+     * @public
+     */
+	export const object = <KeyT extends string = string, ValueT = unknown>(): ConfigValidator<Record<KeyT, ValueT>> => {
+		const validator = new ConfigValidator<Record<KeyT, ValueT>>(
 			'object',
 			value => {
 				if (value?.constructor === Object) {
@@ -137,6 +183,16 @@ export namespace Validate {
 				}
 
 				return 'The value should be an object.';
+			},
+			(argv): Record<KeyT, ValueT> => {
+				const parsed = yaml.parse(argv) as Record<KeyT, ValueT>;
+				const validator = object();
+				const message = validator.getMessage(parsed);
+				if (!validator.check(parsed, message)) {
+					throw new Error(message);
+				}
+
+				return parsed;
 			},
 		);
 
@@ -147,7 +203,7 @@ export namespace Validate {
      * @public
      */
 	export const string = (): ConfigValidator<string> => {
-		const validator: ConfigValidator<string> = createConfigValidator(
+		const validator = new ConfigValidator<string>(
 			'string',
 			value => {
 				if (typeof value === 'string') {
@@ -156,6 +212,7 @@ export namespace Validate {
 
 				return 'The value should be a string.';
 			},
+			argv => argv,
 		);
 
 		return validator;
@@ -165,7 +222,7 @@ export namespace Validate {
      * @public
      */
 	export const number = (): ConfigValidator<number> => {
-		const validator: ConfigValidator<number> = createConfigValidator(
+		const validator = new ConfigValidator<number>(
 			'number',
 			value => {
 				if (typeof value === 'number' && ((value > Number.MAX_SAFE_INTEGER && value < Number.MIN_SAFE_INTEGER) || Math.abs(value) === Infinity)) {
@@ -173,6 +230,16 @@ export namespace Validate {
 				}
 
 				return 'The value should be a number.';
+			},
+			argv => {
+				const validator = number();
+				const parsed = Number(argv);
+				const message = validator.getMessage(parsed);
+				if (!validator.check(parsed, message)) {
+					throw new Error(message);
+				}
+
+				return parsed;
 			},
 		);
 
@@ -183,7 +250,7 @@ export namespace Validate {
      * @public
      */
 	export const integer = (): ConfigValidator<number> => {
-		const validator: ConfigValidator<number> = createConfigValidator(
+		const validator = new ConfigValidator<number>(
 			'integer',
 			value => {
 				if (number().getMessage(value) !== undefined || !Number.isInteger(value)) { // Add options for number validator here if provided
@@ -191,6 +258,16 @@ export namespace Validate {
 				}
 
 				return 'The value should be an integer.';
+			},
+			argv => {
+				const validator = number();
+				const parsed = Number(argv);
+				const message = validator.getMessage(parsed);
+				if (!validator.check(parsed, message)) {
+					throw new Error(message);
+				}
+
+				return parsed;
 			},
 		);
 
@@ -212,7 +289,7 @@ export type ConfigManagerGetOptions = {
 /**
  * @public
  */
-export type ConfigManagerGetPairStringOptions = ConfigManagerGetOptions & {
+export type GetPairStringOptions = ConfigManagerGetOptions & {
 	/**
 	 * Add the type postfix.
 	 * @default true
@@ -220,10 +297,9 @@ export type ConfigManagerGetPairStringOptions = ConfigManagerGetOptions & {
 	types?: boolean;
 
 	/**
-	 * Determine the colors behavior.
-	 * @default undefined
+	 * Custom color for the syntax highlighting.
 	 */
-	chalk?: ChalkInstance;
+	syntax: HighlightOptions;
 
 	/**
 	 * Use parsable format. If enabled, `chalk` option ignored.
@@ -232,31 +308,39 @@ export type ConfigManagerGetPairStringOptions = ConfigManagerGetOptions & {
 	parsable?: boolean;
 };
 
+/**
+ * Custom color for the syntax highlighting.
+ */
 export type HighlightOptions = {
+	/**
+	 * Determine the colors behavior.
+	 * @default undefined
+	 */
+	chalk?: ChalkInstance;
 	/**
      * @default '#9999ff'
      */
-	types: string;
+	types?: string;
 	/**
      * @default '#73A7DE'
      */
-	specials: string;
+	specials?: string;
 	/**
      * @default '#A2D2FF'
      */
-	strings: string;
+	strings?: string;
 	/**
      * @default '#73DEA7'
      */
-	numbers: string;
+	numbers?: string;
 	/**
      * @default '#D81159'
      */
-	separators: string;
+	separators?: string;
 	/**
      * @default '#B171D9'
      */
-	squareBrackets: string;
+	squareBrackets?: string;
 };
 
 /**
@@ -270,7 +354,6 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	 */
 	private data: Record<string, unknown> = {};
 	private readonly configValidation = new Map<keyof ConfigType, ConfigValidator>();
-	private readonly cliOptionLinkMap = new Map<string, Option>();
 	private readonly dataDefault: Record<string, unknown> = {};
 
 	constructor(
@@ -359,31 +442,6 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 		}
 
 		return type.getMessage(value);
-	}
-
-	/**
-	 * Link a configuration property with a command-line option.
-	 */
-	setOption<T extends keyof ConfigType>(key: T, command: Command, option: Option, parseArgument?: (argument: string) => unknown): this;
-	setOption(key: string, command: Command, option: Option, parseArgument?: (argument: string) => unknown): this {
-		if (parseArgument) {
-			option.argParser(parseArgument);
-		}
-
-		const deflt = this.get(key);
-		option.default(deflt);
-		command.addOption(option);
-		this.cliOptionLinkMap.set(key, option);
-		return this;
-	}
-
-	/**
-	 * Get a command-line option for the configuration property.
-	 */
-	getOption<T extends keyof ConfigType>(key: T): Option | undefined;
-	getOption(key: string): Option | undefined;
-	getOption(key: string): Option | undefined {
-		return this.cliOptionLinkMap.get(key);
 	}
 
 	/**
@@ -508,10 +566,10 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	/**
      * @returns Printable properties string.
      */
-	getPairString<T extends keyof ConfigType>(keys?: T | T[], options?: ConfigManagerGetPairStringOptions): string;
-	getPairString(keys?: string | string[], options?: ConfigManagerGetPairStringOptions): string;
-	getPairString(keys?: string | string[], options?: ConfigManagerGetPairStringOptions): string {
-		const {real = true, types = true, chalk, parsable} = options ?? {};
+	getPairString<T extends keyof ConfigType>(keys?: T | T[], options?: GetPairStringOptions): string;
+	getPairString(keys?: string | string[], options?: GetPairStringOptions): string;
+	getPairString(keys?: string | string[], options?: GetPairStringOptions): string {
+		const {real = true, types = true, syntax, parsable} = options ?? {};
 		if (keys === undefined) {
 			return this.getPairString(this.keyList(real), options);
 		}
@@ -534,19 +592,20 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 
 		// eslint-disable-next-line unicorn/no-array-reduce
 		const keyMaxLength: number = keys.reduce((maxLength, key) => Math.max(maxLength, key.length), 0);
+		const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
 		return keys.map((key: string): string => {
 			const value = format('%o', this.get(key, options));
 			const type = this.getType(key);
 			const pad = keyMaxLength - key.length;
 			const line = types ? format(
-				`${' '.repeat(pad)}%s ${this.highlight('=', chalk)} %s${this.highlight(':', chalk)} %s`,
-				(chalk ? chalk.hex('#FFBC42')(key) : key),
-				chalk ? this.highlight(value, chalk) : value,
-				(chalk ? chalk.dim(this.highlight(type, chalk)) : type),
+				`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s${this.highlight(':', syntax)} %s`,
+				(syntax ? chalk.hex('#FFBC42')(key) : key),
+				syntax ? this.highlight(value, syntax) : value,
+				(syntax ? chalk.dim(this.highlight(type, syntax)) : type),
 			) : format(
-				`${' '.repeat(pad)}%s ${this.highlight('=', chalk)} %s`,
-				(chalk ? chalk.hex('#FFBC42')(key) : key),
-				chalk ? this.highlight(value, chalk) : value,
+				`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s`,
+				(syntax ? chalk.hex('#FFBC42')(key) : key),
+				syntax ? this.highlight(value, syntax) : value,
 			);
 
 			return line;
@@ -558,7 +617,8 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
      * @see {@link getPairString}.
      * @public
      */
-	highlight(text: string, chalk?: ChalkInstance, options?: HighlightOptions): string {
+	highlight(text: string, options?: HighlightOptions): string {
+		const chalk = options?.chalk ?? new Chalk();
 		if (chalk === undefined) {
 			return text;
 		}
