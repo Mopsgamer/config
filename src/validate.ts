@@ -21,7 +21,7 @@ export class TypeValidator<T = any> {
 	) {}
 
 	/**
-     * Throws an error instead of the message.
+     * Throws an error instead of returning a message string.
      */
 	public failThrow(value: unknown, ErrorClass: ErrorConstructor = Error): void {
 		const message = this.fail(value);
@@ -78,7 +78,7 @@ export namespace Types {
 	/**
      * @public
      */
-	export const array = <T = any>(type?: TypeValidator<T>) => {
+	export function array<T = any>(type?: TypeValidator<T>) {
 		const validator = new TypeValidator<T[]>(
 			`${type?.typeName ?? 'any'}[]`,
 			value => {
@@ -98,16 +98,16 @@ export namespace Types {
 
 				return 'The value should be an array.';
 			},
-			(argv): any => argv.split(/[, ]/).map(element => (type ?? any).parse(element)), // eslint-disable-line @typescript-eslint/no-unsafe-return
+			argv => argv.split(/[, ]/).map(element => (type ?? any).parse(element)), // eslint-disable-line @typescript-eslint/no-unsafe-return
 		);
 
 		return validator;
-	};
+	}
 
 	/**
      * @public
      */
-	export const literal = <T extends string | number | boolean>(choices: T[]): TypeValidator<T> => {
+	export function literal<T extends string | number | boolean>(choices: T[]): TypeValidator<T> {
 		const validator = new TypeValidator<T>(
 			choices.map(choice => format('%o', choice)).join('|'),
 			value => {
@@ -138,7 +138,7 @@ export namespace Types {
 		);
 
 		return validator;
-	};
+	}
 
 	/**
      * @public
@@ -170,7 +170,7 @@ export namespace Types {
 	/**
      * @public
      */
-	export const object = <KeyT extends string = string, ValueT = unknown>(): TypeValidator<Record<KeyT, ValueT>> => {
+	export function object<KeyT extends string = string, ValueT = unknown>(): TypeValidator<Record<KeyT, ValueT>> {
 		const validator = new TypeValidator<Record<KeyT, ValueT>>(
 			'object',
 			value => {
@@ -193,12 +193,12 @@ export namespace Types {
 		);
 
 		return validator;
-	};
+	}
 
 	/**
      * @public
      */
-	export const string = (): TypeValidator<string> => {
+	export function string(): TypeValidator<string> {
 		const validator = new TypeValidator<string>(
 			'string',
 			value => {
@@ -212,12 +212,12 @@ export namespace Types {
 		);
 
 		return validator;
-	};
+	}
 
 	/**
      * @public
      */
-	export const number = (): TypeValidator<number> => {
+	export function number(): TypeValidator<number> {
 		const validator = new TypeValidator<number>(
 			'number',
 			value => {
@@ -240,16 +240,16 @@ export namespace Types {
 		);
 
 		return validator;
-	};
+	}
 
 	/**
      * @public
      */
-	export const integer = (): TypeValidator<number> => {
+	export function integer(): TypeValidator<number> {
 		const validator = new TypeValidator<number>(
 			'integer',
 			value => {
-				if (number().fail(value) !== undefined || !Number.isInteger(value)) { // Add options for number validator here if provided
+				if (number().fail(value) === undefined && Number.isInteger(value)) { // Add options for number validator here if provided
 					return;
 				}
 
@@ -268,5 +268,5 @@ export namespace Types {
 		);
 
 		return validator;
-	};
+	}
 }
