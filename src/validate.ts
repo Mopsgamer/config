@@ -52,33 +52,36 @@ export namespace Types {
 	/**
      * @public
      */
-	export const any = new TypeValidator<any>(
-		'any',
-		value => {
-			const validatorList = [array(), object(), boolean, string(), number()];
-			for (const validator of validatorList) {
-				if (validator.check(value, validator.fail(value))) {
-					return;
+	export function any(): TypeValidator<unknown> {
+		return new TypeValidator<unknown>(
+			'any',
+			value => {
+				const validatorList = [array(), record(), boolean(), string(), number()];
+				for (const validator of validatorList) {
+					if (validator.check(value, validator.fail(value))) {
+						return;
+					}
 				}
-			}
 
-			return `Can not be represented as any: ${String(value)}.`;
-		},
-		argv => {
-			const parsed: any = yaml.parse(argv) as unknown;
-			const validator = any;
-			const message = validator.fail(parsed);
-			if (!validator.check(parsed, message)) {
-				throw new Error(message);
-			}
+				return `Can not be represented as any: ${String(value)}.`;
+			},
+			argv => {
+				const parsed: unknown = yaml.parse(argv) as unknown;
+				const validator = any();
+				const message = validator.fail(parsed);
+				if (!validator.check(parsed, message)) {
+					throw new Error(message);
+				}
 
-			return parsed; // eslint-disable-line @typescript-eslint/no-unsafe-return
-		},
-	);
+				return parsed;
+			},
+		);
+	}
+
 	/**
      * @public
      */
-	export function array<T = any>(type?: TypeValidator<T>) {
+	export function array<T = unknown>(type?: TypeValidator<T>) {
 		const validator = new TypeValidator<T[]>(
 			`${type?.typeName ?? 'any'}[]`,
 			value => {
@@ -98,7 +101,7 @@ export namespace Types {
 
 				return 'The value should be an array.';
 			},
-			argv => argv.split(/[, ]/).map(element => (type ?? any).parse(element)), // eslint-disable-line @typescript-eslint/no-unsafe-return
+			argv => argv.split(/[, ]/).map(element => (type ?? any()).parse(element)) as T[],
 		);
 
 		return validator;
@@ -119,7 +122,7 @@ export namespace Types {
 			},
 			(argv): T => {
 				let value: string | number | boolean | undefined;
-				const validatorList = [boolean, number(), string()];
+				const validatorList = [boolean(), number(), string()];
 				for (const validator of validatorList) {
 					if (validator.check(value, validator.fail(value))) {
 						value = validator.parse(argv);
@@ -143,49 +146,65 @@ export namespace Types {
 	/**
      * @public
      */
-	export const boolean = new TypeValidator<boolean>(
-		'boolean',
-		value => {
-			if (typeof value === 'boolean') {
-				return;
-			}
+	export function boolean() {
+		return new TypeValidator<boolean>(
+			'boolean',
+			value => {
+				if (typeof value === 'boolean') {
+					return;
+				}
 
-			return 'The value should be a boolean.';
-		},
-		argv => {
-			const bool0 = ['false', '0'];
-			const bool1 = ['true', '1'];
-			if (bool0.includes(argv)) {
-				return false;
-			}
+				return 'The value should be a boolean.';
+			},
+			argv => {
+				const bool0 = ['false', '0'];
+				const bool1 = ['true', '1'];
+				if (bool0.includes(argv)) {
+					return false;
+				}
 
-			if (bool1.includes(argv)) {
-				return false;
-			}
+				if (bool1.includes(argv)) {
+					return false;
+				}
 
-			throw new Error(`The value should be a boolean: ${bool1.concat(bool0).join(', ')}.`);
-		},
-	);
+				throw new Error(`The value should be a boolean: ${bool1.concat(bool0).join(', ')}.`);
+			},
+		);
+	}
 
 	/**
      * @public
      */
-	export function object<KeyT extends string = string, ValueT = unknown>(): TypeValidator<Record<KeyT, ValueT>> {
-		const validator = new TypeValidator<Record<KeyT, ValueT>>(
+	export function record<ValueT = unknown>(
+		valueType = any() as TypeValidator<ValueT>,
+	): TypeValidator<Record<string, ValueT>> {
+		const validator = new TypeValidator<Record<string, ValueT>>(
 			'object',
 			value => {
-				if (value?.constructor === Object) {
-					return;
+				if (value?.constructor !== Object) {
+					return 'The value should be an object.';
 				}
 
-				return 'The value should be an object.';
+				const object = value as Record<string | symbol | number, unknown>;
+
+				for (const key in object) {
+					if (!Object.hasOwn(object, key)) {
+						continue;
+					}
+
+					const value = object[key];
+
+					if (!valueType.check(value, 0)) {
+						return `Invalid value type for the key ${key}, got ${String(value)}. Expected type: ${valueType.typeName}.`;
+					}
+				}
 			},
-			(argv): Record<KeyT, ValueT> => {
-				const parsed = yaml.parse(argv) as Record<KeyT, ValueT>;
-				const validator = object();
+			(argv): Record<string, ValueT> => {
+				const parsed = yaml.parse(argv) as Record<string | number, ValueT>;
+				const validator = record();
 				const message = validator.fail(parsed);
 				if (!validator.check(parsed, message)) {
-					throw new Error(message);
+					throw new TypeError(message);
 				}
 
 				return parsed;

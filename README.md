@@ -9,7 +9,7 @@ Node.js config library for command-line tools with strict type check.
 
 ## Features
 
-...Features...
+- Type checks while loading the config.
 
 ## Install
 
@@ -19,4 +19,20 @@ npm i @m234/config
 
 ## Usage
 
-...Usage or API...
+```ts
+import {homedir} from "node:os"
+import {exit} from "node:process"
+import {join} from "node:path"
+import {Config, Types as ConfigTypes} from "@m234/config"
+
+function exitFail(message: string | undefined) {
+    console.error(message)
+    process.exit(1)
+}
+
+const cfg = new Config(join(homedir(), 'app.yaml'))
+cfg.setValidator('name', Types.string())
+exitFail(cfg.failLoad())
+
+console.log(cfg.get('name'))
+```
