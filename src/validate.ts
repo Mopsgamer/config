@@ -45,6 +45,27 @@ export class TypeValidator<T = any> {
 }
 
 /**
+ * Runtime type-checker
+ */
+export type TypeValidatorArray<T = unknown> = TypeValidator<T[]> & {
+	elementType: TypeValidator<T>;
+};
+
+/*
+ * Runtime type-checker
+ */
+export type TypeValidatorRecord<T = unknown> = TypeValidator<Record<string, T>> & {
+	valueType: TypeValidator<T>;
+};
+
+/*
+ * Runtime type-checker
+ */
+export type TypeValidatorStruct<PropertiesT extends Record<string, unknown>> = TypeValidator<PropertiesT> & {
+	properties: Record<keyof PropertiesT, TypeValidator<PropertiesT[keyof PropertiesT]>>;
+};
+
+/**
  * @public
  */
 // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -81,16 +102,12 @@ export namespace Types {
 	/**
      * @public
      */
-	export function array<T = unknown>(type?: TypeValidator<T>) {
+	export function array<T = unknown>(elementType = any() as TypeValidator<T>): TypeValidatorArray<T> {
 		const validator = new TypeValidator<T[]>(
-			`${type?.typeName ?? 'any'}[]`,
+			`${elementType.typeName}[]`,
 			value => {
 				if (Array.isArray(value)) {
-					if (type === undefined) {
-						return;
-					}
-
-					const badElementList = value.map(element => type.fail(element)).filter(element => element !== undefined);
+					const badElementList = value.map(element => elementType.fail(element)).filter(element => element !== undefined);
 					if (badElementList.length > 0) {
 						const list = badElementList.map((element, index) => `${index}: ${element}`).join('\n');
 						return `The value should be a typed array. Found bad elements:\n${list}`;
@@ -101,8 +118,10 @@ export namespace Types {
 
 				return 'The value should be an array.';
 			},
-			argv => argv.split(/[, ]/).map(element => (type ?? any()).parse(element)) as T[],
-		);
+			argv => argv.split(/[, ]/).map(element => elementType.parse(element)),
+		) as TypeValidatorArray<T>;
+
+		validator.elementType = elementType;
 
 		return validator;
 	}
@@ -175,9 +194,52 @@ export namespace Types {
 	/**
      * @public
      */
+	export function struct<PropertiesT extends Record<string, unknown>>(
+		properties: TypeValidatorStruct<PropertiesT>['properties'],
+	): TypeValidatorStruct<PropertiesT> {
+		const validator = new TypeValidator<PropertiesT>(
+			'struct',
+			value => {
+				const nonRecordMessage = record().fail(value);
+				if (!record().check(value, nonRecordMessage)) {
+					return;
+				}
+
+				const object = value;
+
+				for (const key in object) {
+					if (!Object.hasOwn(object, key)) {
+						continue;
+					}
+
+					const element = object[key];
+					const propertyType = properties[key];
+					if (!propertyType) {
+						return `Unexpected key '${key}' for the struct`;
+					}
+
+					const message = propertyType.fail(element);
+					if (!propertyType.check(value, 0)) {
+						return `Bad value for '${key}': ${message}`;
+					}
+				}
+			},
+			argv => {
+				throw new Error(`@m234/config does not allow parsing for nested structures. Got: ${argv}`);
+			},
+		) as TypeValidatorStruct<PropertiesT>;
+
+		validator.properties = properties;
+
+		return validator;
+	}
+
+	/**
+     * @public
+     */
 	export function record<ValueT = unknown>(
 		valueType = any() as TypeValidator<ValueT>,
-	): TypeValidator<Record<string, ValueT>> {
+	): TypeValidatorRecord<ValueT> {
 		const validator = new TypeValidator<Record<string, ValueT>>(
 			'object',
 			value => {
@@ -209,7 +271,9 @@ export namespace Types {
 
 				return parsed;
 			},
-		);
+		) as TypeValidatorRecord<ValueT>;
+
+		validator.valueType = valueType;
 
 		return validator;
 	}

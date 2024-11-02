@@ -5,13 +5,7 @@ import {format} from 'node:util';
 import * as yaml from 'yaml';
 import {type ChalkInstance, Chalk} from 'chalk';
 import ansiRegex from 'ansi-regex';
-import {type TypeValidator, Types} from './validate.js';
-
-/**
- * For each configuration key of the configuration we have an error message.
- * @public
- */
-export type ConfigCheckMap<ConfigType extends ConfigRaw> = Map<keyof ConfigType, string>;
+import {type TypeValidatorStruct} from './validate.js';
 
 /**
  * @public
@@ -30,7 +24,7 @@ export function isShowSources(value: unknown): value is ShowSourcesType {
  * Command-line configuration structure.
  * @public
  */
-export type ConfigRaw = Record<string, unknown>;
+export type ConfigRaw = {[K in string]: unknown};
 
 export function isConfigRaw(value: unknown): value is ConfigRaw {
 	return value?.constructor === Object;
@@ -108,126 +102,26 @@ export type HighlightOptions = {
  * File-specific actions container.
  * @public
  */
-export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
+export class Config<ConfigType extends {[K in string]: unknown} = ConfigRaw> {
 	private data: Record<string, unknown> = {};
-	private readonly configValidation = new Map<keyof ConfigType, TypeValidator>();
 	private readonly dataDefault: Record<string, unknown> = {};
 
 	constructor(
 		public readonly path: string,
+		public readonly type: TypeValidatorStruct<ConfigType>,
 	) {}
-
-	/**
-     * @returns Errors (if any) for every key if the value is an object. Otherwise returns the "bad object" message.
-     */
-	fail(data: unknown): ConfigCheckMap<ConfigType> | string {
-		const keyMap: ConfigCheckMap<ConfigType> = new Map();
-		const object = data as Record<string, unknown>;
-		if (object?.constructor !== Object) {
-			return Types.record().fail(object)!;
-		}
-
-		for (const key in object) {
-			if (!Object.hasOwn(object, key)) {
-				continue;
-			}
-
-			const value = object[key];
-
-			const message = this.failValue<string>(key, value);
-			if (message === undefined) {
-				continue;
-			}
-
-			keyMap.set(key, message);
-		}
-
-		return keyMap;
-	}
-
-	/**
-	 * Get type name for the key.
-	 */
-	getType<T extends keyof ConfigType>(key: T): string;
-	getType(key: string): string;
-	getType(key: string): string {
-		return this.configValidation.get(key)?.typeName ?? 'any';
-	}
-
-	/**
-	 * Get type checker for the key.
-	 */
-	getValidator<T extends keyof ConfigType>(key: T): TypeValidator | undefined;
-	getValidator(key: string): TypeValidator | undefined {
-		return this.configValidation.get(key);
-	}
-
-	/**
-	 * Define type checker for the key.
-	 */
-	setValidator<T extends keyof ConfigType & string>(key: T, defaultValue: ConfigType[T], type: TypeValidator): this {
-		this.configValidation.set(key, type);
-		const errorMessage = type.fail(defaultValue);
-		if (errorMessage !== undefined) {
-			throw new TypeError(`Invalid default value preset for configuration key ${format(key)} - ${errorMessage}`);
-		}
-
-		this.dataDefault[key] = defaultValue;
-		return this;
-	}
-
-	/**
-	 * Checks if the key is defined.
-	 * @returns Error message if the key is not defined.
-	 */
-	failKey(key: string): string | undefined {
-		if (this.configValidation.has(key)) {
-			return;
-		}
-
-		return `Unknown config key '${key}'. Choices: ${Array.from(this.configValidation.keys()).join(', ')}`;
-	}
-
-	/**
-	 * Call the type checker for the key.
-	 */
-	failValue<T extends keyof ConfigType>(key: T, value: unknown): string | undefined;
-	failValue(key: string, value: unknown): string | undefined {
-		const type = this.configValidation.get(key);
-		if (type === undefined) {
-			return;
-		}
-
-		return type.fail(value);
-	}
 
 	/**
      * Loads the config from the file in {@link path}.
      * @returns The error message for each invalid configuration key.
      */
-	failLoad(): ConfigCheckMap<ConfigType> | string | undefined {
+	failLoad(): string | undefined {
 		const parsed: unknown = existsSync(this.path) ? yaml.parse(readFileSync(this.path).toString()) : undefined;
 		if (parsed === undefined) {
 			return;
 		}
 
-		const message = this.fail(parsed);
-
-		if (typeof message === 'string') {
-			return message;
-		}
-
-		const object = parsed as Record<string, unknown>;
-		for (const key in object) {
-			if (!Object.hasOwn(object, key) || message.has(key)) {
-				continue;
-			}
-
-			const element = object[key];
-			this.data[key] = element;
-		}
-
-		return message;
+		return this.type.fail(parsed);
 	}
 
 	/**
@@ -260,11 +154,10 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
      * @param key The name of the configuration key.
      * @param value The new value for the configuration key.
      */
-	failSet<T extends keyof ConfigType>(key: T, value: ConfigType[T]): string | undefined;
-	failSet(key: string, value: unknown): string | undefined;
-	failSet(key: string, value: unknown): string | undefined {
-		const errorMessage = this.failValue(key, value);
-		if (errorMessage !== undefined) {
+	failSet<T extends keyof ConfigType>(key: T, value: ConfigType[T], errorMessage: string | undefined): string | undefined;
+	failSet(key: string, value: unknown, errorMessage: string | undefined): string | undefined;
+	failSet(key: string, value: unknown, errorMessage: string | undefined): string | undefined {
+		if (!this.type.properties[key].check(value, errorMessage)) {
 			return errorMessage;
 		}
 
@@ -294,8 +187,9 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	/**
      * @returns An array of properties which defined in the configuration file.
      */
-	keyList(real = true): Array<keyof ConfigType> {
-		const keys = real ? Array.from(this.configValidation.keys()) : Object.keys(this.data);
+	keyList(options?: ConfigManagerGetOptions): Array<keyof ConfigType & string> {
+		const {real = true} = options ?? {};
+		const keys = real ? Array.from(Object.keys(this.type.properties)) : Object.keys(this.data);
 		return keys;
 	}
 
@@ -304,16 +198,15 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
      * @param real The options.
      * @returns The value for the specified key.
      */
-	get<T extends keyof ConfigType>(key: T, options: ConfigManagerGetOptions & {real?: false}): ConfigType[T] | undefined;
-	get<T extends keyof ConfigType>(key: T, options?: ConfigManagerGetOptions & {real: true}): ConfigType[T];
-	get(key: string, options?: ConfigManagerGetOptions): unknown;
-	get(key: string, options?: ConfigManagerGetOptions): unknown {
+	get<T extends keyof ConfigType & string>(key: T, options: ConfigManagerGetOptions): ConfigType[T] | undefined;
+	get<T extends keyof ConfigType & string>(key: T, options?: ConfigManagerGetOptions & {real: true}): ConfigType[T];
+	get<T extends keyof ConfigType & string>(key: T, options?: ConfigManagerGetOptions): ConfigType[T] | undefined {
 		const {real = true} = options ?? {};
-		let value: unknown = this.data[key];
+		let value = this.data[key as string] as ConfigType[T] | undefined;
 		if (real && value === undefined) {
-			value = this.dataDefault[key];
+			value = this.dataDefault[key as string] as ConfigType[T] | undefined;
 			if (value === undefined) {
-				throw new Error(`Excpected default value for configuration key: ${key}.`);
+				throw new Error(`Excpected default value for configuration key: ${String(key)}.`);
 			}
 		}
 
@@ -323,12 +216,10 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 	/**
      * @returns Printable properties string.
      */
-	getPairString<T extends keyof ConfigType>(keys?: T | T[], options?: GetPairStringOptions): string;
-	getPairString(keys?: string | string[], options?: GetPairStringOptions): string;
-	getPairString(keys?: string | string[], options?: GetPairStringOptions): string {
+	getPairString<T extends keyof ConfigType & string>(keys?: T | T[], options?: GetPairStringOptions): string {
 		const {real = true, types = true, syntax, parsable} = options ?? {};
 		if (keys === undefined) {
-			return this.getPairString(this.keyList(real), options);
+			return this.getPairString(this.keyList({real}), options);
 		}
 
 		if (typeof keys === 'string') {
@@ -336,11 +227,11 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 		}
 
 		if (parsable) {
-			return keys.map((key: string) => {
-				const value = format('%o', this.get(key, options));
+			return keys.map(key => {
+				const value = format('%o', this.get(key, {real: options?.real}));
 				if (types) {
-					const type = this.getType(key);
-					return `${key}\n${value}\n${type}`;
+					const {typeName} = this.type.properties[key];
+					return `${key}\n${value}\n${typeName}`;
 				}
 
 				return `${key}\n${value}`;
@@ -350,15 +241,15 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> {
 		// eslint-disable-next-line unicorn/no-array-reduce
 		const keyMaxLength: number = keys.reduce((maxLength, key) => Math.max(maxLength, key.length), 0);
 		const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
-		return keys.map((key: string): string => {
-			const value = format('%o', this.get(key, options));
-			const type = this.getType(key);
+		return keys.map((key): string => {
+			const value = format('%o', this.get(key, {real}));
+			const {typeName} = this.type.properties[key];
 			const pad = keyMaxLength - key.length;
 			const line = types ? format(
 				`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s${this.highlight(':', syntax)} %s`,
 				(syntax ? chalk.hex('#FFBC42')(key) : key),
 				syntax ? this.highlight(value, syntax) : value,
-				(syntax ? chalk.dim(this.highlight(type, syntax)) : type),
+				(syntax ? chalk.dim(this.highlight(typeName, syntax)) : typeName),
 			) : format(
 				`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s`,
 				(syntax ? chalk.hex('#FFBC42')(key) : key),
