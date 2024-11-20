@@ -55,16 +55,18 @@ export type DynamicPropertyCalculation<T = unknown> = {
 	info?: string;
 };
 
-export type StructOptions<PropertiesT extends Record<string, unknown>> = {
+export type StructOptions<T extends Record<string, unknown>> = {
 	/**
 	 * Type validator for the each value.
 	 */
-	properties: TypeValidatorStructProperties<PropertiesT>;
+	properties: TypeValidatorStructProperties<T>;
 	/**
 	 * Dynamic properties type checking.
 	 * Can be used to allow unknown properties.
+	 *
+	 * If you are using it as a function you can get the value using `this[property]`.
 	 */
-	dynamicProperties?: DynamicPropertyCalculation | ((this: PropertiesT, property: string) => DynamicPropertyCalculation | undefined);
+	dynamicProperties?: DynamicPropertyCalculation | ((this: T, property: string) => DynamicPropertyCalculation | undefined);
 };
 
 export type TypeValidatorOptions<T = unknown> = {
@@ -149,16 +151,16 @@ export class TypeValidatorRecord<T = unknown> extends TypeValidator<Record<strin
 	}
 }
 
-export type TypeValidatorStructProperties<PropertiesT = unknown> = Record<keyof PropertiesT, TypeValidator<PropertiesT[keyof PropertiesT]>>;
-export type TypeValidatorStructOptions<PropertiesT extends Record<string, unknown>> = TypeValidatorOptions<PropertiesT> & StructOptions<PropertiesT>;
+export type TypeValidatorStructProperties<T extends Record<string, unknown> = Record<string, unknown>> = Record<keyof T, TypeValidator<T[keyof T]>>;
+export type TypeValidatorStructOptions<T extends Record<string, unknown>> = TypeValidatorOptions<T> & StructOptions<T>;
 
 /**
  * Runtime type-checker
  */
-export class TypeValidatorStruct<PropertiesT extends Record<string, unknown>> extends TypeValidator<PropertiesT> implements TypeValidatorStructOptions<PropertiesT> {
-	public properties: TypeValidatorStructProperties<PropertiesT>;
+export class TypeValidatorStruct<T extends Record<string, unknown>> extends TypeValidator<T> implements TypeValidatorStructOptions<T> {
+	public properties: TypeValidatorStructProperties<T>;
 	public dynamicProperties: DynamicPropertyCalculation | ((property: string) => DynamicPropertyCalculation | undefined) | undefined;
-	constructor(options: TypeValidatorStructOptions<PropertiesT>) {
+	constructor(options: TypeValidatorStructOptions<T>) {
 		super(options);
 		this.properties = options.properties;
 		this.dynamicProperties = options.dynamicProperties;

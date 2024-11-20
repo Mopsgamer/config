@@ -5,7 +5,9 @@ import {format} from 'node:util';
 import * as yaml from 'yaml';
 import {type ChalkInstance, Chalk} from 'chalk';
 import ansiRegex from 'ansi-regex';
-import {type TypeValidatorStruct} from './validate.js';
+import {
+	type StructOptions, Types, type TypeValidatorStruct,
+} from './validate.js';
 
 export function failThrow(Error: ErrorConstructor, message: string | undefined, options?: ErrorOptions) {
 	if (typeof message !== 'string') {
@@ -27,7 +29,7 @@ export function isShowSources(value: unknown): value is ShowSourcesType {
 /**
  * Command-line configuration structure.
  */
-export type ConfigRaw = {[K in string]: unknown};
+export type ConfigRaw = Record<string, unknown>;
 
 export function isConfigRaw(value: unknown): value is ConfigRaw {
 	return value?.constructor === Object;
@@ -99,17 +101,28 @@ export type HighlightOptions = {
 	squareBrackets?: string;
 };
 
+export type ConfigOptions<ConfigType extends ConfigRaw> = {
+	/**
+	 * @see You can use {@link https://www.npmjs.com/package/find-config?activeTab=readme  find-config} package for the path searching.
+	 */
+	path: string;
+	type: StructOptions<ConfigType>;
+};
+
 /**
- * File-specific actions container.
+ * The configuration manager. Uses yaml.
  */
-export class Config<ConfigType extends {[K in string]: unknown} = ConfigRaw> {
+export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigOptions<ConfigType> {
+	public readonly path: string;
+	public readonly type: TypeValidatorStruct<ConfigType>;
+
 	private data: Record<string, unknown> = {};
 	private readonly dataDefault: Record<string, unknown> = {};
 
-	constructor(
-		public readonly path: string,
-		public readonly type: TypeValidatorStruct<ConfigType>,
-	) {}
+	constructor(options: ConfigOptions<ConfigType>) {
+		this.path = options.path;
+		this.type = Types.struct(options.type);
+	}
 
 	/**
      * Loads the config from the file in {@link path}.
