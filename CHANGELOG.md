@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improvements for literal and object
 - New type - struct.
 - All types are methods.
+- Now it is possible to get default values. The `real` option has been replaced by the `mode: 'real' | 'current' | 'default'`.
+- Add failThrow and config normal methods (e.g. unset, set, load).
 
 ## [0.2.0] - 2024-10-18
 
