@@ -50,6 +50,10 @@ it('number', () => {
 	assert.ok(config.Types.number().check(1, 0));
 	assert.ok(config.Types.number().check(1.1, 0));
 	assert.ok(config.Types.number().check(0, 0));
+
+	assert.ok(!config.Types.number({max: 100}).check(101, 0));
+	assert.ok(config.Types.number({max: 100}).check(99, 0));
+	assert.ok(config.Types.number({max: 100}).check(100, 0));
 });
 
 it('integer', () => {

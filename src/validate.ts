@@ -1,6 +1,24 @@
 import {format} from 'node:util';
 import * as yaml from 'yaml';
 
+export type StringOptions = {
+	/**
+	 * @returns Error message.
+	 */
+	pattern?: RegExp | ((value: string) => string | undefined);
+};
+
+export type IntegerOptions = {
+	min?: number;
+	max?: number;
+	/**
+	 * @returns Error message.
+	 */
+	pattern?: RegExp | ((value: number, valueString: string) => string | undefined);
+};
+
+export type NumberOptions = IntegerOptions;
+
 export type LiteralOptions<T> = {
 	choices: Set<T>;
 };
@@ -384,15 +402,23 @@ export namespace Types {
 		return validator;
 	}
 
-	export function string(): TypeValidator<string> {
+	export function string(options?: StringOptions): TypeValidator<string> {
+		const {pattern} = options ?? {};
 		const validator = new TypeValidator<string>({
 			typeName: 'string',
 			fail(value) {
-				if (typeof value === 'string') {
-					return;
+				if (typeof value !== 'string') {
+					return `Should be a string. Got '${String(value)}'.`;
 				}
 
-				return 'The value should be a string.';
+				if (pattern instanceof RegExp) {
+					if (!pattern.test(value)) {
+						return `Should satisfy the regex pattern: ${pattern.source}. Got '${value}'.`;
+					}
+				} else if (pattern) {
+					const message = pattern(value);
+					return `Should be a specific string. Got '${value}'. ${message}`;
+				}
 			},
 			parse(argv) {
 				return argv;
@@ -402,15 +428,34 @@ export namespace Types {
 		return validator;
 	}
 
-	export function number(): TypeValidator<number> {
+	export function number(options?: NumberOptions): TypeValidator<number> {
+		const {min = -Infinity, max = Infinity, pattern} = options ?? {};
 		const validator = new TypeValidator<number>({
 			typeName: 'number',
 			fail(value) {
-				if (typeof value === 'number' && ((value < Number.MAX_SAFE_INTEGER && value > Number.MIN_SAFE_INTEGER) || Math.abs(value) === Infinity)) {
-					return;
+				const maximum = Math.min(max, Number.MAX_SAFE_INTEGER);
+				const minimum = Math.max(min, Number.MIN_SAFE_INTEGER);
+				const valueString = String(value);
+				const error = `Should be a number: ${minimum} - ${maximum}. Got ${valueString}.`;
+
+				if (typeof value !== 'number') {
+					return error;
 				}
 
-				return 'The value should be a number.';
+				const minimax = (value <= maximum && value >= minimum);
+				const infinit = (value === Infinity && max === Infinity) || (value === -Infinity && min === -Infinity);
+				if (!(minimax || infinit)) {
+					return error;
+				}
+
+				if (pattern instanceof RegExp) {
+					if (!pattern.test(valueString)) {
+						return `Should satisfy the regex pattern: ${pattern.source}. Got '${valueString}'.`;
+					}
+				} else if (pattern) {
+					const message = pattern(value, valueString);
+					return `Should be a specific string. Got '${valueString}'. ${message}`;
+				}
 			},
 			parse(argv) {
 				const parsed = Number(argv);
@@ -426,15 +471,18 @@ export namespace Types {
 		return validator;
 	}
 
-	export function integer(): TypeValidator<number> {
+	export function integer(options?: NumberOptions): TypeValidator<number> {
+		const {min = -Infinity, max = Infinity} = options ?? {};
 		const validator = new TypeValidator<number>({
 			typeName: 'integer',
 			fail(value) {
-				if (number().fail(value) === undefined && Number.isInteger(value)) { // Add options for number validator here if provided
+				if (number(options).fail(value) === undefined && Number.isInteger(value)) {
 					return;
 				}
 
-				return 'The value should be an integer.';
+				const maximum = Math.min(max, Number.MAX_SAFE_INTEGER);
+				const minimum = Math.max(min, Number.MIN_SAFE_INTEGER);
+				return `The value should be an integer: ${minimum} - ${maximum}. Got ${String(value)}.`;
 			},
 			parse(argv) {
 				const parsed = Number(argv);
