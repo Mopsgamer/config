@@ -9,7 +9,7 @@ Node.js config library for command-line tools with strict type check.
 
 ## Features
 
-- Type checks while loading the config.
+- Type checks while loading the config: any, string, record, struct, integer, number, boolean.
 
 ## Install
 
