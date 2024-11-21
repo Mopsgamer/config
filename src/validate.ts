@@ -1,14 +1,24 @@
 import {format} from 'node:util';
 import * as yaml from 'yaml';
 
-export type StringOptions = {
+export type TypeOptions<T> = {
+	/**
+	 * The default value.
+	 */
+	defaultVal?: T;
+};
+
+export type AnyOptions = TypeOptions<unknown>;
+export type BooleanOptions = TypeOptions<boolean>;
+
+export type StringOptions = TypeOptions<string> & {
 	/**
 	 * @returns Error message.
 	 */
 	pattern?: RegExp | ((value: string) => string | undefined);
 };
 
-export type IntegerOptions = {
+export type IntegerOptions = TypeOptions<number> & {
 	min?: number;
 	max?: number;
 	/**
@@ -19,18 +29,18 @@ export type IntegerOptions = {
 
 export type NumberOptions = IntegerOptions;
 
-export type LiteralOptions<T> = {
+export type LiteralOptions<T> = TypeOptions<T> & {
 	choices: Set<T>;
 };
 
-export type ArrayOptions<T> = {
+export type ArrayOptions<T> = TypeOptions<T[]> & {
 	/**
 	 * Type validator for the each element.
 	 */
 	elementType: TypeValidator<T>;
 };
 
-export type RecordOptions<T> = {
+export type ObjectOptions<T> = TypeOptions<Record<string, T>> & {
 	/**
 	 * Type validator for the each value.
 	 */
@@ -69,7 +79,11 @@ export type StructOptions<T extends Record<string, unknown>> = {
 	dynamicProperties?: DynamicPropertyCalculation | ((this: T, property: string) => DynamicPropertyCalculation | undefined);
 };
 
-export type TypeValidatorOptions<T = unknown> = {
+export type TypeValidatorOptions<T = unknown> = TypeOptions<T> & {
+	/**
+	 * The default value.
+	 */
+	defaultVal: T | undefined;
 	/**
 	 * The type name of the validator. Example: any, any[], string, integer, number.
 	 */
@@ -88,10 +102,12 @@ export type TypeValidatorOptions<T = unknown> = {
  * Runtime type-checker.
  */
 export class TypeValidator<T = unknown> implements TypeValidatorOptions<T> {
+	public defaultVal: T | undefined;
 	public typeName;
 	public fail;
 	public parse;
 	constructor(options: TypeValidatorOptions<T>) {
+		this.defaultVal = options.defaultVal;
 		this.typeName = options.typeName;
 		this.fail = options.fail.bind(this);
 		this.parse = options.parse.bind(this);
@@ -138,30 +154,34 @@ export class TypeValidatorArray<T = unknown> extends TypeValidator<T[]> implemen
 	}
 }
 
-export type TypeValidatorRecordOptions<T = unknown> = TypeValidatorOptions<Record<string, T>> & RecordOptions<T>;
+export type TypeValidatorObjectOptions<T = unknown> = TypeValidatorOptions<Record<string, T>> & ObjectOptions<T>;
 
 /**
  * Runtime type-checker
  */
-export class TypeValidatorRecord<T = unknown> extends TypeValidator<Record<string, T>> implements TypeValidatorRecordOptions<T> {
+export class TypeValidatorObject<T = unknown> extends TypeValidator<Record<string, T>> implements TypeValidatorObjectOptions<T> {
 	public valueType: TypeValidator<T>;
-	constructor(options: TypeValidatorRecordOptions<T>) {
+	constructor(options: TypeValidatorObjectOptions<T>) {
 		super(options);
 		this.valueType = options.valueType;
 	}
 }
 
 export type TypeValidatorStructProperties<T extends Record<string, unknown> = Record<string, unknown>> = Record<keyof T, TypeValidator<T[keyof T]>>;
-export type TypeValidatorStructOptions<T extends Record<string, unknown>> = TypeValidatorOptions<T> & StructOptions<T>;
+export type TypeValidatorStructOptions<T extends Record<string, unknown>> = Omit<TypeValidatorOptions<T> & StructOptions<T>, 'defaultVal'>;
 
 /**
  * Runtime type-checker
  */
 export class TypeValidatorStruct<T extends Record<string, unknown>> extends TypeValidator<T> implements TypeValidatorStructOptions<T> {
+	public defaultVal: T;
 	public properties: TypeValidatorStructProperties<T>;
 	public dynamicProperties: DynamicPropertyCalculation | ((property: string) => DynamicPropertyCalculation | undefined) | undefined;
 	constructor(options: TypeValidatorStructOptions<T>) {
-		super(options);
+		// eslint-disable-next-line unicorn/prevent-abbreviations
+		const defaultVal = Object.fromEntries(Object.entries(options.properties).map(([key, type]) => [key, type.defaultVal])) as T;
+		super({...options, defaultVal});
+		this.defaultVal = defaultVal;
 		this.properties = options.properties;
 		this.dynamicProperties = options.dynamicProperties;
 	}
@@ -169,8 +189,10 @@ export class TypeValidatorStruct<T extends Record<string, unknown>> extends Type
 
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Types {
-	export function any(): TypeValidator {
+	export function any(options?: AnyOptions): TypeValidator {
+		const {defaultVal} = options ?? {};
 		return new TypeValidator<unknown>({
+			defaultVal,
 			typeName: 'any',
 			fail(value) {
 				const validatorList = [array(), object(), boolean(), string(), number()];
@@ -194,13 +216,10 @@ export namespace Types {
 		});
 	}
 
-	export type ArrayOptions<T = unknown> = {
-		elementType?: TypeValidator<T>;
-	};
-
 	export function array<T = unknown>(options?: ArrayOptions<T>): TypeValidatorArray<T> {
-		const {elementType = any() as TypeValidator<T>} = options ?? {};
+		const {defaultVal, elementType = any() as TypeValidator<T>} = options ?? {};
 		const validator = new TypeValidatorArray<T>({
+			defaultVal,
 			elementType,
 			typeName: `${elementType.typeName}[]`,
 			fail(value) {
@@ -223,8 +242,9 @@ export namespace Types {
 	}
 
 	export function literal<T extends string | number | boolean | TypeValidator>(options: LiteralOptions<T>): TypeValidator<T> {
-		const {choices} = options;
+		const {defaultVal, choices} = options;
 		const validator = new TypeValidator<T>({
+			defaultVal,
 			typeName: Array.from(choices, choice => {
 				if (choice instanceof TypeValidator) {
 					return choice.toString();
@@ -276,8 +296,10 @@ export namespace Types {
 		return validator;
 	}
 
-	export function boolean() {
+	export function boolean(options?: BooleanOptions) {
+		const {defaultVal} = options ?? {};
 		return new TypeValidator<boolean>({
+			defaultVal,
 			typeName: 'boolean',
 			fail(value) {
 				if (typeof value === 'boolean') {
@@ -362,13 +384,10 @@ export namespace Types {
 		return validator;
 	}
 
-	export type ObjectOptions<ValueT = unknown> = {
-		valueType: TypeValidator<ValueT>;
-	};
-
-	export function object<ValueT = unknown>(options?: ObjectOptions<ValueT>): TypeValidatorRecord<ValueT> {
-		const {valueType = any() as TypeValidator<ValueT>} = options ?? {};
-		const validator = new TypeValidatorRecord<ValueT>({
+	export function object<ValueT = unknown>(options?: ObjectOptions<ValueT>): TypeValidatorObject<ValueT> {
+		const {defaultVal, valueType = any() as TypeValidator<ValueT>} = options ?? {};
+		const validator = new TypeValidatorObject<ValueT>({
+			defaultVal,
 			valueType,
 			typeName: 'object',
 			fail(value) {
@@ -405,8 +424,9 @@ export namespace Types {
 	}
 
 	export function string(options?: StringOptions): TypeValidator<string> {
-		const {pattern} = options ?? {};
+		const {defaultVal, pattern} = options ?? {};
 		const validator = new TypeValidator<string>({
+			defaultVal,
 			typeName: 'string',
 			fail(value) {
 				if (typeof value !== 'string') {
@@ -431,8 +451,9 @@ export namespace Types {
 	}
 
 	export function number(options?: NumberOptions): TypeValidator<number> {
-		const {min = -Infinity, max = Infinity, pattern} = options ?? {};
+		const {defaultVal, min = -Infinity, max = Infinity, pattern} = options ?? {};
 		const validator = new TypeValidator<number>({
+			defaultVal,
 			typeName: 'number',
 			fail(value) {
 				const maximum = Math.min(max, Number.MAX_SAFE_INTEGER);
@@ -474,8 +495,9 @@ export namespace Types {
 	}
 
 	export function integer(options?: NumberOptions): TypeValidator<number> {
-		const {min = -Infinity, max = Infinity} = options ?? {};
+		const {defaultVal, min = -Infinity, max = Infinity} = options ?? {};
 		const validator = new TypeValidator<number>({
+			defaultVal,
 			typeName: 'integer',
 			fail(value) {
 				if (number(options).fail(value) === undefined && Number.isInteger(value)) {

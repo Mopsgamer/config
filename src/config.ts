@@ -2,12 +2,12 @@ import {
 	existsSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {format} from 'node:util';
-import * as yaml from 'yaml';
 import {type ChalkInstance, Chalk} from 'chalk';
 import ansiRegex from 'ansi-regex';
 import {
-	type StructOptions, Types, type TypeValidatorStruct,
+	Types, type TypeValidator, TypeValidatorObject, TypeValidatorStruct,
 } from './validate.js';
+import {type Parser} from './parser.js';
 
 export function failThrow(Error: ErrorConstructor, message: string | undefined, options?: ErrorOptions) {
 	if (typeof message !== 'string') {
@@ -37,12 +37,18 @@ export function isConfigRaw(value: unknown): value is ConfigRaw {
 
 export type ConfigManagerGetMode = 'real' | 'current' | 'default';
 
-export type ConfigManagerKeyListOptions = ConfigManagerGetOptions;
+export type ConfigManagerKeyListOptions = {
+	/**
+	 * Use default value as fallback.
+	 * @default 'current'
+	 */
+	mode?: ConfigManagerGetMode;
+};
 
 export type ConfigManagerGetOptions = {
 	/**
 	 * Use default value as fallback.
-	 * @default 'current'
+	 * @default 'real'
 	 */
 	mode?: ConfigManagerGetMode;
 };
@@ -101,27 +107,40 @@ export type HighlightOptions = {
 	squareBrackets?: string;
 };
 
-export type ConfigOptions<ConfigType extends ConfigRaw> = {
+export type ConfigOptions<ConfigType> = {
 	/**
 	 * @see You can use {@link https://www.npmjs.com/package/find-config?activeTab=readme  find-config} package for the path searching.
 	 */
 	path: string;
-	type: StructOptions<ConfigType>;
+	/**
+	 * Co
+	 */
+	type: TypeValidator<ConfigType>;
+	/**
+	 * @see yaml, jsonc, ini and other similar packages.
+	 * @default JSON
+	 */
+	parser?: Parser;
 };
 
 /**
- * The configuration manager. Uses yaml.
+ * The configuration manager.
  */
-export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigOptions<ConfigType> {
+export class Config<ConfigType = unknown> implements Required<ConfigOptions<ConfigType>> {
 	public readonly path: string;
-	public readonly type: TypeValidatorStruct<ConfigType>;
+	public readonly parser: Parser;
+	public readonly type: TypeValidator<ConfigType>;
 
-	private data: Record<string, unknown> = {};
-	private readonly dataDefault: Record<string, unknown> = {};
+	private data: unknown = {};
 
 	constructor(options: ConfigOptions<ConfigType>) {
 		this.path = options.path;
-		this.type = Types.struct(options.type);
+		this.parser = options.parser ?? JSON;
+		this.type = options.type;
+	}
+
+	getData(): unknown {
+		return structuredClone(this.data);
 	}
 
 	/**
@@ -129,7 +148,13 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigO
      * @returns The error message for each invalid configuration key.
      */
 	failLoad(): string | undefined {
-		const parsed: unknown = existsSync(this.path) ? yaml.parse(readFileSync(this.path).toString()) : undefined;
+		let parsed: unknown;
+		try {
+			parsed = existsSync(this.path) ? this.parser.parse(readFileSync(this.path).toString()) : undefined;
+		} catch {
+			return `Unable to parse: ${this.path}.`;
+		}
+
 		if (parsed === undefined) {
 			return;
 		}
@@ -147,34 +172,53 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigO
 
 	/**
      * Saves the partial config to the file {@link path}. If there are no keys, the file will be deleted (if exists).
+	 * @param keep Do not delete the config file, for empty data object.
      * @return Error message for invalid write operation.
      */
-	failSave(): string | undefined {
-		if (Object.keys(this.data).length === 0) {
-			if (existsSync(this.path)) {
-				try {
-					rmSync(this.path);
-				} catch {
-					return `Unuble to remove: ${this.path}`;
-				}
+	failSave(keep = false): string | undefined {
+		if ((this.type instanceof TypeValidatorStruct || this.type instanceof TypeValidatorObject) && this.keyList({mode: 'current'}).length === 0) {
+			if (!existsSync(this.path) || keep) {
+				return;
 			}
 
-			return;
+			try {
+				rmSync(this.path);
+				return;
+			} catch {
+				return `Unuble to remove: ${this.path}.`;
+			}
 		}
 
 		try {
-			writeFileSync(this.path, yaml.stringify(this.data));
+			writeFileSync(this.path, this.parser.stringify(this.data));
 		} catch {
-			return `Unuble to write: ${this.path}`;
+			return `Unuble to write: ${this.path}.`;
 		}
 	}
 
 	/**
      * Saves the partial config to the file {@link path}. If there are no keys, the file will be deleted (if exists).
+	 * @param keep Do not delete the config file, for empty data object.
      * @throws Error message for invalid write operation.
      */
-	save() {
-		failThrow(Error, this.failSave());
+	save(keep = false) {
+		failThrow(Error, this.failSave(keep));
+	}
+
+	/**
+     * Sets a new value for the specified configuration key.
+     * Expects a valid value.
+     * @param key The name of the configuration key.
+     * @param value The new value for the configuration key.
+     */
+	failSet<T extends keyof ConfigType>(key: T, value: ConfigType[T]): string | undefined;
+	failSet(key: string, value: unknown): string | undefined;
+	failSet(key: string, value: unknown): string | undefined {
+		if (!((this.type instanceof TypeValidatorStruct || this.type instanceof TypeValidatorObject) && this.type.check(this.data, 0))) {
+			return `Unable to set the key: '${key}'. The config is not an object.`;
+		}
+
+		this.data[key] = value;
 	}
 
 	/**
@@ -186,7 +230,7 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigO
 	set<T extends keyof ConfigType>(key: T, value: ConfigType[T]): void;
 	set(key: string, value: unknown): void;
 	set(key: string, value: unknown): void {
-		this.data[key] = value;
+		failThrow(TypeError, this.failSet(key, value));
 	}
 
 	/**
@@ -198,15 +242,19 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigO
 	failUnset<T extends keyof ConfigType>(key?: T): string | undefined;
 	failUnset(key?: string): string | undefined;
 	failUnset(key?: string): string | undefined {
+		if (!((this.type instanceof TypeValidatorStruct || this.type instanceof TypeValidatorObject) && this.type.check(this.data, 0))) {
+			return `Unable to unset the key: '${key}'. The config is not an object.`;
+		}
+
 		if (key === undefined) {
-			for (const key of Object.keys(this.data)) {
+			for (const key of this.keyList({mode: 'current'})) {
 				delete this.data[key]; // eslint-disable-line @typescript-eslint/no-dynamic-delete
 			}
 
 			return;
 		}
 
-		return delete this.data[key] ? undefined : `Unable to unset the key: ${key}`; // eslint-disable-line @typescript-eslint/no-dynamic-delete
+		return delete this.data[key] ? undefined : `Unable to unset the key: '${key}'.`; // eslint-disable-line @typescript-eslint/no-dynamic-delete
 	}
 
 	/**
@@ -224,10 +272,26 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigO
 	/**
      * @returns An array of properties which defined in the configuration file.
      */
-	keyList(options?: ConfigManagerKeyListOptions): Array<keyof ConfigType & string> {
+	keyList(options?: ConfigManagerKeyListOptions): string[] {
+		const {data} = this;
+		if (!(Types.object().check(data, 0) && (this.type instanceof TypeValidatorStruct || this.type instanceof TypeValidatorObject))) {
+			throw new TypeError('Unable to list keys. The config is not an object.');
+		}
+
 		const {mode = 'current'} = options ?? {};
-		const keys = mode === 'current' ? Object.keys(this.data) : Array.from(Object.keys(this.type.properties));
-		return keys;
+		if (mode === 'current') {
+			return Object.keys(data);
+		}
+
+		if (mode === 'real') {
+			return this.type instanceof TypeValidatorStruct
+				? Array.from(Object.entries(this.type.properties).filter(([key, value]) => (data[key] ?? value) !== undefined)).map(([key]) => key)
+				: Object.keys(data);
+		}
+
+		return this.type instanceof TypeValidatorStruct
+			? Array.from(Object.entries(this.type.properties).filter(([, value]) => (value) !== undefined)).map(([key]) => key)
+			: Object.keys(data);
 	}
 
 	/**
@@ -236,16 +300,17 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigO
      * @returns The value for the specified key.
      */
 	get<T extends keyof ConfigType & string>(key: T, options: ConfigManagerGetOptions): ConfigType[T] | undefined;
-	get<T extends keyof ConfigType & string>(key: T, options?: ConfigManagerGetOptions & {mode: 'real' | 'default'}): ConfigType[T];
-	get<T extends keyof ConfigType & string>(key: T, options?: ConfigManagerGetOptions): ConfigType[T] | undefined {
-		const {mode = 'current'} = options ?? {};
+	get<T extends string>(key: T, options: ConfigManagerGetOptions): ConfigType[keyof ConfigType] | undefined;
+	get<T extends string>(key: T, options: ConfigManagerGetOptions): ConfigType[keyof ConfigType] | undefined {
+		if (!Types.object().check(this.data, 0)) {
+			throw new TypeError('Unable to get the key or keys. The config is not an object.');
+		}
 
-		let value = this.data[key as string] as ConfigType[T] | undefined;
+		const {mode = 'real'} = options ?? {};
+
+		let value = this.data[key] as ConfigType[keyof ConfigType] | undefined;
 		if (mode === 'default' || (mode === 'real' && value === undefined)) {
-			value = this.dataDefault[key as string] as ConfigType[T] | undefined;
-			if (value === undefined) {
-				throw new Error(`Excpected default value for configuration key: ${String(key)}.`);
-			}
+			value = this.type.defaultVal?.[key as string as keyof ConfigType];
 		}
 
 		return value;
@@ -254,48 +319,77 @@ export class Config<ConfigType extends ConfigRaw = ConfigRaw> implements ConfigO
 	/**
      * @returns Printable properties string.
      */
-	getPairString<T extends keyof ConfigType & string>(keys?: T | T[], options?: GetPairStringOptions): string {
+	getPairString<T extends keyof ConfigType & string>(keys?: T | T[], options?: GetPairStringOptions): string;
+	getPairString<T extends string>(keys?: T | T[], options?: GetPairStringOptions): string;
+	getPairString<T extends string>(keys?: T | T[], options?: GetPairStringOptions): string {
 		const {mode = 'current', types = true, syntax, parsable} = options ?? {};
-		if (keys === undefined) {
-			return this.getPairString(this.keyList({mode}), options);
-		}
+		const {type} = this;
+		if (type instanceof TypeValidatorStruct) {
+			keys ??= this.keyList({mode}) as T[];
 
-		if (typeof keys === 'string') {
-			return this.getPairString([keys], options);
-		}
+			if (typeof keys === 'string') {
+				return this.getPairString([keys], options);
+			}
 
-		if (parsable) {
-			return keys.map(key => {
+			if (parsable) {
+				return keys.map(key => {
+					const value = format('%o', this.get(key, {mode}));
+					if (types) {
+						const {typeName} = type.properties[key];
+						return `${key}\n${value}\n${typeName}`;
+					}
+
+					return `${key}\n${value}`;
+				}).join('\n');
+			}
+
+			// eslint-disable-next-line unicorn/no-array-reduce
+			const keyMaxLength: number = keys.reduce((maxLength, key) => Math.max(maxLength, key.length), 0);
+			const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
+			return keys.map((key): string => {
 				const value = format('%o', this.get(key, {mode}));
-				if (types) {
-					const {typeName} = this.type.properties[key];
-					return `${key}\n${value}\n${typeName}`;
-				}
+				const {typeName} = type.properties[key];
+				const pad = keyMaxLength - key.length;
+				const line = types ? format(
+					`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s${this.highlight(':', syntax)} %s`,
+					(syntax ? chalk.hex('#FFBC42')(key) : key),
+					syntax ? this.highlight(value, syntax) : value,
+					(syntax ? chalk.dim(this.highlight(typeName, syntax)) : typeName),
+				) : format(
+					`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s`,
+					(syntax ? chalk.hex('#FFBC42')(key) : key),
+					syntax ? this.highlight(value, syntax) : value,
+				);
 
-				return `${key}\n${value}`;
+				return line;
 			}).join('\n');
 		}
 
-		// eslint-disable-next-line unicorn/no-array-reduce
-		const keyMaxLength: number = keys.reduce((maxLength, key) => Math.max(maxLength, key.length), 0);
-		const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
-		return keys.map((key): string => {
-			const value = format('%o', this.get(key, {mode}));
-			const {typeName} = this.type.properties[key];
-			const pad = keyMaxLength - key.length;
-			const line = types ? format(
-				`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s${this.highlight(':', syntax)} %s`,
-				(syntax ? chalk.hex('#FFBC42')(key) : key),
-				syntax ? this.highlight(value, syntax) : value,
-				(syntax ? chalk.dim(this.highlight(typeName, syntax)) : typeName),
-			) : format(
-				`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s`,
-				(syntax ? chalk.hex('#FFBC42')(key) : key),
-				syntax ? this.highlight(value, syntax) : value,
-			);
+		if (parsable) {
+			const value = format('%o', this.data);
+			if (types) {
+				const {typeName} = this.type;
+				return `${value}\n${typeName}`;
+			}
 
-			return line;
-		}).join('\n');
+			return value;
+		}
+
+		const value = format('%o', this.data);
+		const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
+		const {typeName} = this.type;
+		const line = types ? format(
+			`%s${this.highlight(':', syntax)} %s`,
+			(syntax ? chalk.hex('#FFBC42')(this.data) : this.data),
+			syntax ? this.highlight(value, syntax) : value,
+			(syntax ? chalk.dim(this.highlight(typeName, syntax)) : typeName),
+		) : format(
+			'%s',
+			(syntax ? chalk.hex('#FFBC42')(this.data) : this.data),
+			syntax ? this.highlight(value, syntax) : value,
+		);
+
+		return line;
 	}
 
 	/**
