@@ -9,21 +9,15 @@ import {
 } from './validate.js';
 import {type Parser} from './parser.js';
 
+/**
+ * @throws If the message is a string.
+ */
 export function failThrow(Error: ErrorConstructor, message: string | undefined, options?: ErrorOptions) {
 	if (typeof message !== 'string') {
 		return;
 	}
 
 	throw new Error(message, options);
-}
-
-export type ShowSourcesType = boolean;
-
-/**
- * Checks if the value is the {@link ShowSourcesType}.
- */
-export function isShowSources(value: unknown): value is ShowSourcesType {
-	return typeof value === 'boolean';
 }
 
 /**
@@ -35,6 +29,13 @@ export function isConfigRaw(value: unknown): value is ConfigRaw {
 	return value?.constructor === Object;
 }
 
+/**
+ * `"real"` - values, with resolved default values.
+ *
+ * `"current"` - values provided in the config file.
+ *
+ * `"default"` - only default values, ignoring the configuration file.
+ */
 export type ConfigManagerGetMode = 'real' | 'current' | 'default';
 
 export type ConfigManagerKeyListOptions = {
@@ -296,12 +297,12 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 
 	/**
      * @param key The configuration key.
-     * @param real The options.
+     * @param options The options.
      * @returns The value for the specified key.
      */
-	get<T extends keyof ConfigType & string>(key: T, options: ConfigManagerGetOptions): ConfigType[T] | undefined;
-	get<T extends string>(key: T, options: ConfigManagerGetOptions): ConfigType[keyof ConfigType] | undefined;
-	get<T extends string>(key: T, options: ConfigManagerGetOptions): ConfigType[keyof ConfigType] | undefined {
+	get<T extends keyof ConfigType & string>(key: T, options?: ConfigManagerGetOptions): ConfigType[T] | undefined;
+	get<T extends string>(key: T, options?: ConfigManagerGetOptions): ConfigType[keyof ConfigType] | undefined;
+	get<T extends string>(key: T, options?: ConfigManagerGetOptions): ConfigType[keyof ConfigType] | undefined {
 		if (!Types.object().check(this.data, 0)) {
 			throw new TypeError('Unable to get the key or keys. The config is not an object.');
 		}
