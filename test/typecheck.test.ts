@@ -1,6 +1,14 @@
 import assert from 'node:assert';
 import * as config from '../src/index.js';
 
+it('optional', () => {
+	assert.ok(config.Types.number({optional: false}).check(1, 0));
+	assert.ok(!config.Types.number({optional: false}).check(undefined, 0));
+
+	assert.ok(config.Types.number({optional: true}).check(1, 0));
+	assert.ok(config.Types.number({optional: true}).check(undefined, 0));
+});
+
 it('record', () => {
 	assert.ok(!config.Types.object().check(1, 0));
 	assert.ok(config.Types.object().check(new Object(), 0)); // eslint-disable-line no-object-constructor

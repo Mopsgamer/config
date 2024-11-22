@@ -32,19 +32,22 @@ function exitFail(message: string | undefined) {
     process.exit(1)
 }
 
+const aORb = Types.literal({choices: new Set(['a', 'b'])})
 const cfg = new Config({
     path: join(homedir(), 'app.yaml'), // or use `find-config` package
-    type: {
-        id: Types.integer({min: 0})
-        // min 8 chars password
-        password: Types.string({pattern: /.{8,}/})
-        records: Types.array({elementType: Types.struct({
-            label: Types.string()
-            // ...
-        })})
-    }
+    type: Types.struct({
+        properties:{
+            id: Types.integer({min: 0})
+            // min 8 chars password
+            password: Types.string({pattern: /.{8,}/})
+            records: Types.array({
+                elementType: aORb
+            })
+        }
+    })
 })
 
 exitFail(cfg.failLoad())
-console.log(cfg.get('name'))
+console.log(cfg.get('id') === 0)
+console.log(cfg.getPrintable())
 ```

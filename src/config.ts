@@ -4,30 +4,17 @@ import {
 import {format} from 'node:util';
 import {type ChalkInstance, Chalk} from 'chalk';
 import ansiRegex from 'ansi-regex';
-import {
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	Types, type TypeValidator, TypeValidatorObject, TypeValidatorStruct,
-} from './validate.js';
-import {type Parser} from './parser.js';
+import Types from './types.js';
 
 /**
  * @throws If the message is a string.
  */
-export function failThrow(Error: ErrorConstructor, message: string | undefined, options?: ErrorOptions) {
+export function failThrow(Error: ErrorConstructor, message: string | undefined, options?: ErrorOptions): typeof message extends string ? never : void {
 	if (typeof message !== 'string') {
 		return;
 	}
 
 	throw new Error(message, options);
-}
-
-/**
- * The config data which satisfies an object or a struct.
- */
-export type ConfigRaw = Record<string, unknown>;
-
-export function isConfigRaw(value: unknown): value is ConfigRaw {
-	return value?.constructor === Object;
 }
 
 /**
@@ -37,25 +24,25 @@ export function isConfigRaw(value: unknown): value is ConfigRaw {
  *
  * `"default"` - only default values, ignoring the configuration file.
  */
-export type ConfigManagerGetMode = 'real' | 'current' | 'default';
+export type ConfigGetMode = 'real' | 'current' | 'default';
 
-export type ConfigManagerKeyListOptions = {
+export type ConfigKeyListOptions = {
 	/**
 	 * Use the default value as a fallback.
 	 * @default 'current'
 	 */
-	mode?: ConfigManagerGetMode;
+	mode?: ConfigGetMode;
 };
 
-export type ConfigManagerGetOptions = {
+export type ConfigGetOptions = {
 	/**
 	 * Use the default value as a fallback.
 	 * @default 'real'
 	 */
-	mode?: ConfigManagerGetMode;
+	mode?: ConfigGetMode;
 };
 
-export type GetPairStringOptions = ConfigManagerGetOptions & {
+export type GetPrintableOptions = ConfigGetOptions & {
 	/**
 	 * Add the type postfix.
 	 * @default true
@@ -65,7 +52,7 @@ export type GetPairStringOptions = ConfigManagerGetOptions & {
 	/**
 	 * Custom color for the syntax highlighting.
 	 */
-	syntax: HighlightOptions;
+	syntax: ConfigHighlightOptions;
 
 	/**
 	 * Use the parsable format. If enabled, `chalk` option ignored.
@@ -77,7 +64,7 @@ export type GetPairStringOptions = ConfigManagerGetOptions & {
 /**
  * Custom color for the syntax highlighting.
  */
-export type HighlightOptions = {
+export type ConfigHighlightOptions = {
 	/**
 	 * Determine the colors behavior.
 	 * @default undefined
@@ -109,7 +96,7 @@ export type HighlightOptions = {
 	squareBrackets?: string;
 };
 
-export type ConfigOptions<ConfigType> = {
+export type ConfigOptions<ConfigType extends Types.OptionalTypeAny> = {
 	/**
 	 * @see You can use the {@link https://www.npmjs.com/package/find-config?activeTab=readme  find-config} package for the path searching.
 	 */
@@ -118,23 +105,23 @@ export type ConfigOptions<ConfigType> = {
 	 * Configuration type check.
 	 * @see {@link Types} have many useful methods.
 	 */
-	type: ConfigType extends ConfigRaw ? TypeValidatorStruct<ConfigType> | TypeValidatorObject<ConfigType> : TypeValidator<ConfigType>;
+	type: ConfigType extends Types.ObjectLike ? Types.TypeValidatorStruct<ConfigType> | Types.TypeValidatorObject<ConfigType> : Types.TypeValidator<ConfigType>;
 	/**
 	 * @see yaml, jsonc, ini and other similar packages.
 	 * @default JSON
 	 */
-	parser?: Parser;
+	parser?: Types.Parser;
 };
 
 /**
  * The configuration manager.
  */
-export class Config<ConfigType = unknown> implements Required<ConfigOptions<ConfigType>> {
+export class Config<ConfigType extends Types.OptionalTypeAny> implements Required<ConfigOptions<ConfigType>> {
 	public readonly path: string;
-	public readonly parser: Parser;
-	public readonly type: ConfigType extends ConfigRaw ? TypeValidatorStruct<ConfigType> | TypeValidatorObject<ConfigType> : TypeValidator<ConfigType>;
+	public readonly parser: Types.Parser;
+	public readonly type: ConfigType extends Types.ObjectLike ? Types.TypeValidatorStruct<ConfigType> | Types.TypeValidatorObject<ConfigType> : Types.TypeValidator<ConfigType>;
 
-	private data: ConfigType | Record<string, unknown> = {};
+	private data: ConfigType | undefined = undefined;
 
 	constructor(options: ConfigOptions<ConfigType>) {
 		this.path = options.path;
@@ -161,9 +148,9 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 			return `Unable to parse: ${this.path}.`;
 		}
 
-		const message = this.type.fail(parsed);
-		if (this.type.check(parsed, message)) {
-			this.data = parsed;
+		const message = this.type.fail(parsed) ?? this.type.fail(this.data);
+		if (this.type.check(parsed, message) && this.type.check(this.data, message)) {
+			this.data = parsed as ConfigType;
 		}
 
 		return message;
@@ -180,9 +167,9 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 	/**
 	 * Checks if the config data satisfies a struct/object provided by the {@link type} property.
 	 */
-	isRaw(error: string | undefined | 0): this is Config<ConfigRaw> {
-		return (this.type instanceof TypeValidatorStruct || this.type instanceof TypeValidatorObject)
-		&& this.type.check(this.data, error);
+	isObjectLike(error: string | undefined | 0): this is Config<Types.ObjectLike> {
+		return (this.type instanceof Types.TypeValidatorStruct || this.type instanceof Types.TypeValidatorObject)
+		&& this.type.check(this.data, error) && !this.type.optional && this.data !== undefined;
 	}
 
 	/**
@@ -192,7 +179,7 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
      */
 	failSave(keep = false): string | undefined {
 		const error = this.type.fail(this.data);
-		if (this.isRaw(error) && this.keyList({mode: 'current'}).length === 0) {
+		if (this.isObjectLike(error) && this.keyList({mode: 'current'}).length === 0) {
 			if (!existsSync(this.path) || keep) {
 				return;
 			}
@@ -206,7 +193,7 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 		}
 
 		try {
-			writeFileSync(this.path, this.parser.stringify(this.data));
+			writeFileSync(this.path, this.getDataString());
 		} catch {
 			return `Unuble to write: ${this.path}.`;
 		}
@@ -230,12 +217,17 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 	failSet<T extends keyof ConfigType>(key: T, value: ConfigType[T]): string | undefined;
 	failSet(key: string, value: unknown): string | undefined;
 	failSet(key: string, value: unknown): string | undefined {
-		const error = this.type.fail(this.data);
-		if (!this.isRaw(error)) {
-			return `Unable to set the key: '${key}'. ${error}`;
+		let error = this.type.fail(this.data);
+		if (!this.isObjectLike(error) || !this.data) {
+			return `Unable to set the key: '${key}'. Not object-like. ${error}`;
 		}
 
-		(this.data as ConfigRaw)[key] = value;
+		error = this.type.fail(value);
+		if (!this.type.check(value, error)) {
+			return `Unable to set the key: '${key}'. Got: ${format('%o', value)}. Not object-like. ${error}`;
+		}
+
+		this.data[key] = value;
 	}
 
 	/**
@@ -260,8 +252,8 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 	failUnset(key?: string): string | undefined;
 	failUnset(key?: string): string | undefined {
 		const error = this.type.fail(this.data);
-		if (!this.isRaw(error)) {
-			return `Unable to unset the key: '${key}'. ${error}`;
+		if (!this.isObjectLike(error) || !this.data) {
+			return `Unable to unset the key: '${key}'. Not object-like. ${error}`;
 		}
 
 		if (key !== undefined) {
@@ -295,10 +287,10 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 	/**
      * @returns An array of properties which defined in the configuration file.
      */
-	keyList(options?: ConfigManagerKeyListOptions): string[] {
+	keyList(options?: ConfigKeyListOptions): string[] {
 		const error = this.type.fail(this.data);
-		if (!this.isRaw(error)) {
-			throw new TypeError(`Unable to list keys. ${error}`);
+		if (!this.isObjectLike(error) || !this.data) {
+			throw new TypeError(`Unable to list keys. Not object-like. ${error}`);
 		}
 
 		const {mode = 'current'} = options ?? {};
@@ -307,12 +299,12 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 		}
 
 		if (mode === 'real') {
-			return this.type instanceof TypeValidatorStruct
-				? Array.from(Object.entries(this.type.properties).filter(([key, value]) => (this.data[key] ?? value) !== undefined)).map(([key]) => key)
+			return this.type instanceof Types.TypeValidatorStruct
+				? Array.from(Object.entries(this.type.properties).filter(([key, value]) => (this.data?.[key] ?? value) !== undefined)).map(([key]) => key)
 				: Object.keys(this.data);
 		}
 
-		return this.type instanceof TypeValidatorStruct
+		return this.type instanceof Types.TypeValidatorStruct
 			? Array.from(Object.entries(this.type.properties).filter(([, value]) => (value) !== undefined)).map(([key]) => key)
 			: Object.keys(this.data);
 	}
@@ -322,12 +314,12 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
      * @param options The options.
      * @returns The value for the specified key.
      */
-	get<T extends keyof ConfigType>(key: T, options?: ConfigManagerGetOptions): ConfigType[T] | undefined;
-	get(key: string, options?: ConfigManagerGetOptions): unknown;
-	get(key: string, options?: ConfigManagerGetOptions): unknown {
+	get<T extends keyof ConfigType>(key: T, options?: ConfigGetOptions): ConfigType[T];
+	get(key: string, options?: ConfigGetOptions): unknown;
+	get(key: string, options?: ConfigGetOptions): unknown {
 		const error = this.type.fail(this.data);
-		if (!this.isRaw(error)) {
-			throw new TypeError(`Unable to get the key or keys. ${error}`);
+		if (!this.isObjectLike(error) || !this.data) {
+			throw new TypeError(`Unable to get the key or keys. Not object-like. ${error}`);
 		}
 
 		const {mode = 'real'} = options ?? {};
@@ -341,25 +333,26 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 	}
 
 	/**
+	 * For command-line printing purposes. Uses {@link format}, not {@link Types.defaultParser}.
      * @returns Printable properties string.
      */
-	getPairString<T extends keyof ConfigType & string>(keys?: T | T[], options?: GetPairStringOptions): string;
-	getPairString(keys?: string | string[], options?: GetPairStringOptions): string;
-	getPairString(keys?: string | string[], options?: GetPairStringOptions): string {
+	getPrintable<T extends keyof ConfigType & string>(keys?: T | T[], options?: GetPrintableOptions): string;
+	getPrintable(keys?: string | string[], options?: GetPrintableOptions): string;
+	getPrintable(keys?: string | string[], options?: GetPrintableOptions): string {
 		const {mode = 'current', types = true, syntax, parsable} = options ?? {};
-		if (this.isRaw(0)) {
+		if (this.isObjectLike(0)) {
 			const {type} = this;
 			keys ??= this.keyList({mode});
 
 			if (typeof keys === 'string') {
-				return this.getPairString([keys], options);
+				return this.getPrintable([keys], options);
 			}
 
 			if (parsable) {
 				return keys.map(key => {
 					const value = format('%o', this.get(key, {mode}));
 					if (types) {
-						const {typeName} = type instanceof TypeValidatorStruct ? type.properties[key] : type.valueType;
+						const {typeName} = type instanceof Types.TypeValidatorStruct ? type.properties[key] : type.valueType;
 						return `${key}\n${value}\n${typeName}`;
 					}
 
@@ -372,7 +365,7 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 			const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
 			return keys.map((key): string => {
 				const value = format('%o', this.get(key, {mode}));
-				const {typeName} = type instanceof TypeValidatorStruct ? type.properties[key] : type.valueType;
+				const {typeName} = type instanceof Types.TypeValidatorStruct ? type.properties[key] : type.valueType;
 				const pad = keyMaxLength - key.length;
 				const line = types ? format(
 					`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s${this.highlight(':', syntax)} %s`,
@@ -417,10 +410,22 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 	}
 
 	/**
+	 * Stringify the config data with the type checking.
+	 */
+	getDataString() {
+		const message = this.type.fail(this.data);
+		if (!this.type.check(this.data, message)) {
+			throw new TypeError(message);
+		}
+
+		return this.type.stringify(this.data as never);
+	}
+
+	/**
      * Add some colors for the syntax.
-     * @see {@link getPairString}.
+     * @see {@link getPrintable}.
      */
-	highlight(text: string, options?: HighlightOptions): string {
+	highlight(text: string, options?: ConfigHighlightOptions): string {
 		const chalk = options?.chalk ?? new Chalk();
 		if (chalk === undefined) {
 			return text;

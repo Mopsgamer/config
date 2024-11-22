@@ -1,2 +1,2 @@
 export * from './config.js';
-export * from './validate.js';
+export * from './types.js';

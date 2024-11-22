@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- Major changes:
+  - Move all type-related stuff into `Types` namespace.
+  - Rename `getPairString`, `ConfigRaw` and `Config.isRaw` to
+    `getPrintable`, `Types.ObjectLike` and `Config.isObjectLike` respectively.
+  - Remove `isConfigRaw`, `TypeValidator.failThow` and `TypeValidatorOptions.parse`.
+
+- Minor changes:
+  - Add `Types.parser`.
+  - Add `getDataString`.
+  - Add `TypeOptions.optional`.
+
+- Patch changes:
+  - Update dependencies.
+  - Remove 'yaml' depencency and use the `Types.parser` for the type parsing instead of yaml.
+
+
 ## [2.0.3] - 2024-11-22
 
 This patch contains 'object-like config'-related changes:
