@@ -361,7 +361,7 @@ export namespace Types {
 
 					const message = propertyType.fail(value[key]);
 					if (!propertyType.check(value, message)) {
-						return `Bad value for key '${key}': ${message}`;
+						return `Bad value for the key '${key}': ${message}`;
 					}
 				}
 

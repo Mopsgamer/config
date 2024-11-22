@@ -40,7 +40,7 @@ export type ConfigManagerGetMode = 'real' | 'current' | 'default';
 
 export type ConfigManagerKeyListOptions = {
 	/**
-	 * Use default value as fallback.
+	 * Use the default value as a fallback.
 	 * @default 'current'
 	 */
 	mode?: ConfigManagerGetMode;
@@ -48,7 +48,7 @@ export type ConfigManagerKeyListOptions = {
 
 export type ConfigManagerGetOptions = {
 	/**
-	 * Use default value as fallback.
+	 * Use the default value as a fallback.
 	 * @default 'real'
 	 */
 	mode?: ConfigManagerGetMode;
@@ -67,7 +67,7 @@ export type GetPairStringOptions = ConfigManagerGetOptions & {
 	syntax: HighlightOptions;
 
 	/**
-	 * Use parsable format. If enabled, `chalk` option ignored.
+	 * Use the parsable format. If enabled, `chalk` option ignored.
 	 * @default false
 	 */
 	parsable?: boolean;
@@ -110,7 +110,7 @@ export type HighlightOptions = {
 
 export type ConfigOptions<ConfigType> = {
 	/**
-	 * @see You can use {@link https://www.npmjs.com/package/find-config?activeTab=readme  find-config} package for the path searching.
+	 * @see You can use the {@link https://www.npmjs.com/package/find-config?activeTab=readme  find-config} package for the path searching.
 	 */
 	path: string;
 	/**
@@ -145,26 +145,27 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 	}
 
 	/**
-     * Loads the config from the file in {@link path}.
+     * Loads the config from the {@link path}, if satisfies the type check.
      * @returns The error message for each invalid configuration key.
      */
 	failLoad(): string | undefined {
 		let parsed: unknown;
 		try {
-			parsed = existsSync(this.path) ? this.parser.parse(readFileSync(this.path).toString()) : undefined;
+			parsed = existsSync(this.path) ? this.parser.parse(readFileSync(this.path).toString()) : this.type.defaultVal;
 		} catch {
 			return `Unable to parse: ${this.path}.`;
 		}
 
-		if (parsed === undefined) {
-			return;
+		const message = this.type.fail(parsed);
+		if (message) {
+			this.data = parsed;
 		}
 
-		return this.type.fail(parsed);
+		return message;
 	}
 
 	/**
-     * Loads the config from the file in {@link path}.
+     * Loads the config from the {@link path}, if satisfies the type check.
 	 * @throws The error message for each invalid configuration key.
      */
 	load() {
@@ -172,7 +173,7 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 	}
 
 	/**
-     * Saves the partial config to the file {@link path}. If there are no keys, the file will be deleted (if exists).
+     * Saves the partial config to the {@link path}. If there are no keys, the file will be deleted (if exists).
 	 * @param keep Do not delete the config file, for empty data object.
      * @return Error message for invalid write operation.
      */
