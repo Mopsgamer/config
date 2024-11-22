@@ -202,7 +202,7 @@ export namespace Types {
 					}
 				}
 
-				return `Can not be represented as any: ${String(value)}.`;
+				return `Can not be represented as any. Got: ${format('%o', value)}.`;
 			},
 			parse(argv) {
 				const parsed: unknown = yaml.parse(argv) as unknown;
@@ -227,9 +227,9 @@ export namespace Types {
 					return 'The value should be an array.';
 				}
 
-				const badElementList = value.map(element => elementType.fail(element)).filter(element => element !== undefined);
-				if (badElementList.length > 0) {
-					const list = badElementList.map((element, index) => `${index}: ${element}`).join('\n');
+				const massageList = value.map(element => elementType.fail(element)).filter(message => message !== undefined);
+				if (massageList.length > 0) {
+					const list = massageList.map((message, index) => `Element ${index}: ${message}`).join('\n\n');
 					return `The value should be a typed array. Found bad elements:\n${list}`;
 				}
 			},
@@ -306,7 +306,7 @@ export namespace Types {
 					return;
 				}
 
-				return 'The value should be a boolean.';
+				return `The value should be a ${this.typeName}.`;
 			},
 			parse(argv) {
 				const bool0 = ['false', '0'];
@@ -319,7 +319,7 @@ export namespace Types {
 					return false;
 				}
 
-				throw new TypeError(`The value should be a boolean: ${bool1.concat(bool0).join(', ')}.`);
+				throw new TypeError(`The value should be a ${this.typeName}: ${bool1.concat(bool0).join(', ')}.`);
 			},
 		});
 	}
@@ -332,11 +332,12 @@ export namespace Types {
 			typeName: 'struct',
 			fail(value) {
 				const objectValidator = object();
-				const message = objectValidator.fail(value);
-				if (!objectValidator.check(value, message)) {
-					return message;
+				const objectValidationMessage = objectValidator.fail(value);
+				if (!objectValidator.check(value, objectValidationMessage)) {
+					return objectValidationMessage;
 				}
 
+				const errorList: string[] = [];
 				for (const key in value) {
 					if (!Object.hasOwn(value, key)) {
 						continue;
@@ -356,18 +357,25 @@ export namespace Types {
 						: properties[key] ?? validator;
 
 					if (!propertyType) {
-						return `Unexpected key '${key}' for the struct.` + (info ? ' ' + info : '');
+						errorList.push(`Unexpected key '${key}'.` + (info ? ' ' + info : ''));
+						continue;
 					}
 
 					const message = propertyType.fail(value[key]);
 					if (!propertyType.check(value, message)) {
-						return `Bad value for the key '${key}': ${message}`;
+						errorList.push(`Bad value for the key '${key}': ${message!}`);
+						continue;
 					}
 				}
 
 				const missingKeys = Object.keys(properties).filter(expectedKey => !Object.hasOwn(value, expectedKey));
 				if (missingKeys.length > 0) {
-					return `Missing keys for the struct: '${missingKeys.join('\', \'')}'.`;
+					errorList.push(`Missing keys: '${missingKeys.join('\', \'')}'.`);
+				}
+
+				if (errorList.length > 0) {
+					const message = errorList.join('\n\n');
+					return `The value should be a ${this.typeName}:\n${message}`;
 				}
 			},
 			parse(argv) {
@@ -392,11 +400,12 @@ export namespace Types {
 			typeName: 'object',
 			fail(value) {
 				if (value?.constructor !== Object) {
-					return 'The value should be an object.';
+					return `The value should be an ${this.typeName}.`;
 				}
 
 				const object = value as Record<string | symbol | number, unknown>;
 
+				const errorList: string[] = [];
 				for (const key in object) {
 					if (!Object.hasOwn(object, key)) {
 						continue;
@@ -405,8 +414,14 @@ export namespace Types {
 					const value = object[key];
 
 					if (!valueType.check(value, 0)) {
-						return `Invalid value type for the key ${key}, got ${String(value)}. Expected type: ${valueType.typeName}.`;
+						errorList.push(`Invalid value type for the key '${key}'. Got ${format('%o', value)}.`);
+						continue;
 					}
+				}
+
+				if (errorList.length > 0) {
+					const message = errorList.join('\n\n');
+					return `The value should be an ${this.typeName}:\n${message}`;
 				}
 			},
 			parse(argv) {
@@ -430,16 +445,16 @@ export namespace Types {
 			typeName: 'string',
 			fail(value) {
 				if (typeof value !== 'string') {
-					return `Should be a string. Got '${String(value)}'.`;
+					return `Should be a ${this.typeName}. Got '${format('%o', value)}'.`;
 				}
 
 				if (pattern instanceof RegExp) {
 					if (!pattern.test(value)) {
-						return `Should satisfy the regex pattern: ${pattern.source}. Got '${value}'.`;
+						return `Should satisfy the regex pattern: ${pattern.source}. Got '${format('%o', value)}'.`;
 					}
 				} else if (pattern) {
 					const message = pattern(value);
-					return `Should be a specific string. Got '${value}'. ${message}`;
+					return `Should be a specific ${this.typeName}. Got '${format('%o', value)}'. ${message}`;
 				}
 			},
 			parse(argv) {
@@ -459,7 +474,7 @@ export namespace Types {
 				const maximum = Math.min(max, Number.MAX_SAFE_INTEGER);
 				const minimum = Math.max(min, Number.MIN_SAFE_INTEGER);
 				const valueString = String(value);
-				const error = `Should be a number: ${minimum} - ${maximum}. Got ${valueString}.`;
+				const error = `Should be a ${this.typeName}: ${minimum} - ${maximum}. Got: ${format('%o', value)}.`;
 
 				if (typeof value !== 'number') {
 					return error;
@@ -473,11 +488,11 @@ export namespace Types {
 
 				if (pattern instanceof RegExp) {
 					if (!pattern.test(valueString)) {
-						return `Should satisfy the regex pattern: ${pattern.source}. Got '${valueString}'.`;
+						return `Should satisfy the regex pattern: ${pattern.source}. Got: '${format('%o', value)}'.`;
 					}
 				} else if (pattern) {
 					const message = pattern(value, valueString);
-					return `Should be a specific string. Got '${valueString}'. ${message}`;
+					return `Should be a specific ${this.typeName}. Got: '${format('%o', value)}'.${message ? ' ' + message : ''}`;
 				}
 			},
 			parse(argv) {
@@ -500,13 +515,13 @@ export namespace Types {
 			defaultVal,
 			typeName: 'integer',
 			fail(value) {
-				if (number(options).fail(value) === undefined && Number.isInteger(value)) {
+				if (number(options).check(value, 0) && Number.isInteger(value)) {
 					return;
 				}
 
 				const maximum = Math.min(max, Number.MAX_SAFE_INTEGER);
 				const minimum = Math.max(min, Number.MIN_SAFE_INTEGER);
-				return `The value should be an integer: ${minimum} - ${maximum}. Got ${String(value)}.`;
+				return `The value should be an ${this.typeName}: ${minimum} - ${maximum}. Got: ${format('%o', value)}.`;
 			},
 			parse(argv) {
 				const parsed = Number(argv);

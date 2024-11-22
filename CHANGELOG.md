@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Fix loading.
+- `struct` and `object` type checking messages now contain all problems, not just the first one.
+- Improve other validation messages.
 
 ## [2.0.1] - 2024-11-22
 

@@ -140,6 +140,9 @@ export class Config<ConfigType = unknown> implements Required<ConfigOptions<Conf
 		this.type = options.type;
 	}
 
+	/**
+	 * @returns A clone of the original data object.
+	 */
 	getData(): unknown {
 		return structuredClone(this.data);
 	}
