@@ -86,3 +86,7 @@ it('literal', () => {
 	assert.ok(config.Types.literal({choices}).check(0, 0));
 	assert.ok(config.Types.literal({choices}).check(true, 0));
 });
+
+it('date string', () => {
+	assert.strictEqual(config.Types.date().parse('50').getTime(), new Date(Date.parse('50')).getTime());
+});

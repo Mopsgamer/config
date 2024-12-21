@@ -10,19 +10,19 @@ export namespace Types {
 		stringify(value: unknown): string;
 	};
 
-	export type OptionalForOptions<T extends AnyType, O extends undefined | TypeOptions> = O extends {optional: true} ? OptionalType<T> : T;
-	export type OptionalType<T extends AnyType> = undefined | T;
+	export type OptionalForOptions<T extends OptionalTypeAny, O extends undefined | TypeOptions> = O extends {optional: true} ? OptionalType<T> : T;
+	export type OptionalType<T extends OptionalTypeAny> = undefined | T;
 	// eslint-disable-next-line @typescript-eslint/consistent-indexed-object-style, @typescript-eslint/consistent-type-definitions
 	export interface ObjectLike<ValueT extends OptionalTypeAny = OptionalTypeAny> {
-		[x: string]: ValueT;
+		[x: string | number | symbol]: ValueT;
 	}
 	export type LowType = string | number | boolean | TypeValidator;
-	export type AnyType = LowType | ObjectLike | AnyType[];
+	export type AnyType = LowType | ObjectLike | AnyType[] | Date;
 	export type OptionalTypeAny = OptionalType<AnyType>;
 
 	/**
 	 * Describes methods of the {@link TypeValidator}.
-	 * @ Not all file formats are supporting the `undefined`, so it will not work for normal JSON or some other parsers.
+	 * Not all file formats are supporting the `undefined`, so it may not work for normal JSON or some other parsers.
 	 * @see {@link TypeValidator.parse} is a wrapper with the type checking.
 	 * @default JSON
 	 */
@@ -35,7 +35,7 @@ export namespace Types {
 		optional?: boolean;
 		/**
 		 * Describes methods of the {@link TypeValidator}.
-		 * Not all file formats are supporting the `undefined`, so it will not work for normal JSON or some other parsers.
+		 * Not all file formats are supporting the `undefined`, so it may not work for normal JSON or some other parsers.
 		 * @see {@link TypeValidator.parse} is a wrapper with the type checking.
 		 * @default Types.defaultParser
 		 */
@@ -117,11 +117,13 @@ export namespace Types {
 		dynamicProperties?: DynamicPropertyCalculation | ((this: T, property: string) => DynamicPropertyCalculation | undefined);
 	};
 
+	export type DateOptions = TypeOptions<Date>;
+
 	export type TypeValidatorOptions<T extends OptionalTypeAny = OptionalTypeAny> = TypeOptions<T> & {
 		/**
 		 * The default value.
 		 */
-		defaultVal: T | undefined;
+		defaultVal?: T | undefined;
 		/**
 		 * The type name of the validator. Example: any, any[], string, integer, number.
 		 */
@@ -130,6 +132,10 @@ export namespace Types {
 		 * Creates an error message string.
 		 */
 		fail: (this: TypeValidator<T>, value: unknown) => string | undefined;
+		/**
+		 * Convert value after parsing.
+		 */
+		afterParse?: (this: TypeValidator<T>, value: unknown) => T;
 	};
 
 	/**
@@ -138,12 +144,13 @@ export namespace Types {
 	export class TypeValidator<T extends OptionalTypeAny = OptionalTypeAny> implements TypeValidatorOptions<T> {
 		public parser;
 		public optional;
-		public defaultVal: T | undefined;
+		public defaultVal?: T;
 		public typeName;
 		public fail;
+		public readonly afterParse;
 		constructor(options: TypeValidatorOptions<T>) {
 			this.defaultVal = options.defaultVal;
-			this.optional = options.optional;
+			this.optional = options.optional ?? false;
 			this.parser = options.parser ?? defaultParser;
 			this.typeName = options.typeName;
 			this.fail = function (value: unknown) {
@@ -153,13 +160,15 @@ export namespace Types {
 
 				return options.fail.bind(this)(value);
 			};
+
+			this.afterParse = options.afterParse?.bind(this);
 		}
 
 		/**
 		 * @param value The value to check.
 		 * @param error The error message for performance optimizations.
 		 */
-		public check(value: unknown, error: string | undefined | 0): value is (OptionalForOptions<NonNullable<T>, typeof this>) {
+		public check(value: unknown, error: string | undefined | 0): value is (OptionalForOptions<T, typeof this>) {
 			if (error === 0) {
 				error = this.fail(value);
 			}
@@ -172,7 +181,11 @@ export namespace Types {
 		 * @throws A {@link TypeError}, if the values does not satisfy the type, or an exception from the {@link Parser.parse} method.
 		 */
 		parse(argv: string) {
-			const parsed = defaultParser.parse(argv);
+			let parsed = this.parser.parse(argv);
+			if (this.afterParse) {
+				parsed = this.afterParse(parsed);
+			}
+
 			const message = this.fail(parsed);
 			if (!this.check(parsed, message)) {
 				throw new TypeError(message);
@@ -182,7 +195,7 @@ export namespace Types {
 		}
 
 		stringify(value: T) {
-			return defaultParser.stringify(value);
+			return this.parser.stringify(value);
 		}
 
 		toString(): string {
@@ -263,7 +276,7 @@ export namespace Types {
 			optional,
 			parser,
 			elementType,
-			typeName: `${elementType.typeName}[]`,
+			typeName: `array<${elementType.typeName}>`,
 			fail(value) {
 				if (!Array.isArray(value)) {
 					return 'The value should be an array.';
@@ -383,7 +396,7 @@ export namespace Types {
 			optional,
 			parser,
 			valueType,
-			typeName: 'object',
+			typeName: `object<${valueType.typeName}>`,
 			fail(value) {
 				if (value?.constructor !== Object) {
 					return `The value should be an ${this.typeName}.`;
@@ -452,6 +465,27 @@ export namespace Types {
 					const message = pattern(value);
 					return `Should be a specific ${this.typeName}. Got '${format('%o', value)}'. ${message}`;
 				}
+			},
+		});
+
+		return validator;
+	}
+
+	export function date(options?: DateOptions): TypeValidator<Date> {
+		const valueType = string();
+		const {defaultVal, optional, parser} = options ?? {};
+		const validator = new TypeValidator<Date>({
+			defaultVal,
+			optional,
+			parser,
+			typeName: `date<${valueType.typeName}>`,
+			fail(value) {
+				if (Number.isNaN(Date.parse(String(value)))) {
+					return `Should be a ${this.typeName}. Got '${format('%o', value)}'.`;
+				}
+			},
+			afterParse(value) {
+				return new Date(String(value));
 			},
 		});
 

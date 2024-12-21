@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-dynamic-delete */
 import {
 	existsSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
@@ -5,6 +6,17 @@ import {format} from 'node:util';
 import {type ChalkInstance, Chalk} from 'chalk';
 import ansiRegex from 'ansi-regex';
 import Types from './types.js';
+
+/**
+ * @returns Result and error string message from the thrower exception.
+ */
+export function failString<R>(thrower: () => R): [R | undefined, string | undefined] {
+	try {
+		return [thrower(), undefined];
+	} catch (error: unknown) {
+		return [undefined, String(error)];
+	}
+}
 
 /**
  * @throws If the message is a string.
@@ -16,6 +28,11 @@ export function failThrow(Error: ErrorConstructor, message: string | undefined, 
 
 	throw new Error(message, options);
 }
+
+export type ConfigPair<ConfigType extends Types.OptionalTypeAny>
+= ConfigType extends Types.ObjectLike
+	? [key: keyof ConfigType, value: ConfigType[keyof ConfigType]]
+	: never;
 
 /**
  * `"real"` - values, with resolved default values.
@@ -42,7 +59,13 @@ export type ConfigGetOptions = {
 	mode?: ConfigGetMode;
 };
 
-export type GetPrintableOptions = ConfigGetOptions & {
+export type ConfigGetPrintableOptions = {
+	/**
+	 * Use the default value as a fallback.
+	 * @default 'current'
+	 */
+	mode?: ConfigGetMode;
+
 	/**
 	 * Add the type postfix.
 	 * @default true
@@ -52,7 +75,7 @@ export type GetPrintableOptions = ConfigGetOptions & {
 	/**
 	 * Custom color for the syntax highlighting.
 	 */
-	syntax: ConfigHighlightOptions;
+	syntax?: ConfigHighlightOptions;
 
 	/**
 	 * Use the parsable format. If enabled, `chalk` option ignored.
@@ -94,6 +117,14 @@ export type ConfigHighlightOptions = {
      * @default '#B171D9'
      */
 	squareBrackets?: string;
+	/**
+     * @default '#B171D9'
+     */
+	squareRound?: string;
+	/**
+     * @default '#B171D9'
+     */
+	squareAngle?: string;
 };
 
 export type ConfigOptions<ConfigType extends Types.OptionalTypeAny> = {
@@ -105,7 +136,9 @@ export type ConfigOptions<ConfigType extends Types.OptionalTypeAny> = {
 	 * Configuration type check.
 	 * @see {@link Types} have many useful methods.
 	 */
-	type: ConfigType extends Types.ObjectLike ? Types.TypeValidatorStruct<ConfigType> | Types.TypeValidatorObject<ConfigType> : Types.TypeValidator<ConfigType>;
+	type: ConfigType extends Types.ObjectLike
+		? Types.TypeValidatorStruct<ConfigType> | Types.TypeValidatorObject<ConfigType>
+		: Types.TypeValidator<ConfigType>;
 	/**
 	 * @see yaml, jsonc, ini and other similar packages.
 	 * @default JSON
@@ -214,7 +247,7 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
      * @param key The name of the configuration key.
      * @param value The new value for the configuration key.
      */
-	failSet<T extends keyof ConfigType>(key: T, value: ConfigType[T]): string | undefined;
+	failSet<T extends ConfigPair<ConfigType>>(key: T[0], value: T[1]): string | undefined;
 	failSet(key: string, value: unknown): string | undefined;
 	failSet(key: string, value: unknown): string | undefined {
 		let error = this.type.fail(this.data);
@@ -248,7 +281,7 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
      * @param key The configuration key.
 	 * @returns An error message if the key does not exist.
      */
-	failUnset<T extends keyof ConfigType>(key?: T): string | undefined;
+	failUnset<T extends ConfigPair<ConfigType>>(key?: T[0]): string | undefined;
 	failUnset(key?: string): string | undefined;
 	failUnset(key?: string): string | undefined {
 		const error = this.type.fail(this.data);
@@ -257,12 +290,12 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 		}
 
 		if (key !== undefined) {
-			return delete this.data[key] ? undefined : `Unable to unset the key: '${key}'.`; // eslint-disable-line @typescript-eslint/no-dynamic-delete
+			return delete this.data[key] ? undefined : `Unable to unset the key: '${key}'.`;
 		}
 
 		const deleteErrorList: string[] = [];
 		for (const key of this.keyList({mode: 'current'})) {
-			if (!delete this.data[key]) {// eslint-disable-line @typescript-eslint/no-dynamic-delete
+			if (!delete this.data[key]) {
 				deleteErrorList.push(key);
 			}
 		}
@@ -294,19 +327,21 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 		}
 
 		const {mode = 'current'} = options ?? {};
-		if (mode === 'current') {
-			return Object.keys(this.data);
+
+		if (mode === 'real' && this.type instanceof Types.TypeValidatorStruct) {
+			return Array.from(Object.entries(this.type.properties).filter(
+				([key, value]) => (this.data?.[key] ?? value) !== undefined,
+			)).map(([key]) => key);
 		}
 
-		if (mode === 'real') {
-			return this.type instanceof Types.TypeValidatorStruct
-				? Array.from(Object.entries(this.type.properties).filter(([key, value]) => (this.data?.[key] ?? value) !== undefined)).map(([key]) => key)
-				: Object.keys(this.data);
+		if (mode === 'default' && this.type instanceof Types.TypeValidatorStruct) {
+			return Array.from(Object.entries(this.type.properties).filter(
+				([, value]) => (value) !== undefined,
+			)).map(([key]) => key);
 		}
 
-		return this.type instanceof Types.TypeValidatorStruct
-			? Array.from(Object.entries(this.type.properties).filter(([, value]) => (value) !== undefined)).map(([key]) => key)
-			: Object.keys(this.data);
+		// 'current'
+		return Object.keys(this.data);
 	}
 
 	/**
@@ -336,9 +371,9 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	 * For command-line printing purposes. Uses {@link format}, not {@link Types.defaultParser}.
      * @returns Printable properties string.
      */
-	getPrintable<T extends keyof ConfigType & string>(keys?: T | T[], options?: GetPrintableOptions): string;
-	getPrintable(keys?: string | string[], options?: GetPrintableOptions): string;
-	getPrintable(keys?: string | string[], options?: GetPrintableOptions): string {
+	getPrintable<T extends ConfigPair<ConfigType>[0]>(keys?: T | T[], options?: ConfigGetPrintableOptions): string;
+	getPrintable(keys?: string | string[], options?: ConfigGetPrintableOptions): string;
+	getPrintable(keys?: string | string[], options?: ConfigGetPrintableOptions): string {
 		const {mode = 'current', types = true, syntax, parsable} = options ?? {};
 		if (this.isObjectLike(0)) {
 			const {type} = this;
@@ -439,11 +474,13 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 		const rseparator = /([,.\-:="|])/g;
 		const rstring = /'[^']+'/g;
 		const rbracketsSquare = /(\[|])/g;
+		const rbracketsRound = /(\(|\))/g;
+		const rbracketsAngle = /(<|>)/g;
 		const rnumber = /\d+/g;
 		const rspecial = /(true|false|null|Infinity)/g;
 
 		const rall = new RegExp(`${
-			[ansiRegex(), rstring, rseparator, rbracketsSquare, rnumber, rspecial]
+			[ansiRegex(), rstring, rseparator, rbracketsSquare, rbracketsRound, rbracketsAngle, rnumber, rspecial]
 				.map(r => `(${typeof r === 'string' ? r : r.source})`)
 				.join('|')
 		}`, 'g');
@@ -463,6 +500,14 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 
 			if (match.match(rbracketsSquare) !== null) {
 				return chalk.hex(options?.squareBrackets ?? '#B171D9')(match);
+			}
+
+			if (match.match(rbracketsRound) !== null) {
+				return chalk.hex(options?.squareRound ?? '#B171D9')(match);
+			}
+
+			if (match.match(rbracketsAngle) !== null) {
+				return chalk.hex(options?.squareAngle ?? '#B171D9')(match);
 			}
 
 			if (match.match(rnumber) !== null) {
