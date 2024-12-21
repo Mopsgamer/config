@@ -11,10 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add exports field to 'package.json'.
 - Add commander.js integration.
 - Add `failString` method.
-- Add `ConfigPair` type.
-- Add `Types.dateString`.
+- Add `ConfigPair` typing.
+- Add `Types.date` type constructor.
 - Fix typings. Allow `OptionalType<undefined>`. Allow non-string keys: number and symbol.
-- Fix parser option.
+- Fix parser option for every type.
 - Improve array type name: `0|1|2[] -> array<0|1|2>`.
 - Improve object type name: `object -> object<0|1|2>`.
 
