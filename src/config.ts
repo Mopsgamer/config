@@ -182,7 +182,7 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 		}
 
 		const message = this.type.fail(parsed) ?? this.type.fail(this.data);
-		if (this.type.check(parsed, message) && this.type.check(this.data, message)) {
+		if (this.type.check(parsed, message)) {
 			this.data = parsed as ConfigType;
 		}
 
@@ -201,8 +201,9 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	 * Checks if the config data satisfies a struct/object provided by the {@link type} property.
 	 */
 	isObjectLike(error: string | undefined | 0): this is Config<Types.ObjectLike> {
-		return (this.type instanceof Types.TypeValidatorStruct || this.type instanceof Types.TypeValidatorObject)
-		&& this.type.check(this.data, error) && !this.type.optional && this.data !== undefined;
+		const isStructOrObjectValidator = this.type instanceof Types.TypeValidatorStruct || this.type instanceof Types.TypeValidatorObject;
+		const isValidDataValue = this.type.check(this.data, error);
+		return isStructOrObjectValidator && isValidDataValue && this.data !== undefined;
 	}
 
 	/**

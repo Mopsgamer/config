@@ -9,7 +9,7 @@ it('optional', () => {
 	assert.ok(config.Types.number({optional: true}).check(undefined, 0));
 });
 
-it('record', () => {
+it('object', () => {
 	assert.ok(!config.Types.object().check(1, 0));
 	assert.ok(config.Types.object().check(new Object(), 0)); // eslint-disable-line no-object-constructor
 	assert.ok(config.Types.object().check({}, 0));

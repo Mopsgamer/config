@@ -1,3 +1,4 @@
+import {format} from 'node:util';
 import * as commander from 'commander';
 import * as config from '../../index.js';
 import {Types} from '../../types.js';
@@ -6,8 +7,11 @@ export const cfgRealOption = new commander.Option('--real', 'use default value(s
 export const cfgTypesOption = new commander.Option('--types', 'show types').default(false);
 
 export function initCommand<ConfigType extends Types.OptionalTypeAny>(cfg: config.Config<ConfigType>): commander.Command {
-	if (!cfg.isObjectLike(0)) {
-		throw new TypeError(`Can not initialize config command. Type should be object-like: ${cfg.type.typeName}.`);
+	const data = cfg.getData();
+	const dataString = format('%o', data);
+
+	if (!cfg.isObjectLike(undefined)) {
+		throw new TypeError(`Can not initialize config command. Expected type: ${cfg.type.typeName}. Got: ${dataString}.`);
 	}
 
 	const cfgCommand = new commander.Command('config').aliases(['cfg']);
@@ -45,7 +49,7 @@ export function initCommand<ConfigType extends Types.OptionalTypeAny>(cfg: confi
 	return cfgCommand;
 }
 
-function wrapAction<ConfigType extends Types.OptionalTypeAny>(
+function wrapAction<ConfigType extends Types.ObjectLike>(
 	cfg: config.Config<ConfigType>,
 	action: (cfg: config.Config<ConfigType>, ...arguments_: any[]) => string,
 ): (...arguments_: any[]) => void {

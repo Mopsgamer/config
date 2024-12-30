@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-namespace */
 import {format} from 'node:util';
 
 /**
  * Run-time type ckecking.
-*/
-// eslint-disable-next-line @typescript-eslint/no-namespace
+ */
 export namespace Types {
 	export type Parser = {
 		parse(text: string): unknown;
@@ -17,7 +17,7 @@ export namespace Types {
 		[x: string | number | symbol]: ValueT;
 	}
 	export type LowType = string | number | boolean | TypeValidator;
-	export type AnyType = LowType | ObjectLike | AnyType[] | Date;
+	export type AnyType = LowType | ObjectLike | OptionalTypeAny[] | Date;
 	export type OptionalTypeAny = OptionalType<AnyType>;
 
 	/**
@@ -71,11 +71,11 @@ export namespace Types {
 		choices: Set<T>;
 	};
 
-	export type ArrayOptions<T extends AnyType = AnyType> = TypeOptions<T[]> & {
+	export type ArrayOptions<T extends OptionalTypeAny = OptionalTypeAny> = TypeOptions<T[]> & {
 		/**
 		 * Type validator for the each element.
 		 */
-		elementType: TypeValidator<T>;
+		elementType?: TypeValidator<T>;
 	};
 
 	export type ObjectOptions<T extends ObjectLike = ObjectLike> = TypeOptions<T> & {
@@ -152,7 +152,7 @@ export namespace Types {
 			this.defaultVal = options.defaultVal;
 			this.optional = options.optional ?? false;
 			this.parser = options.parser ?? defaultParser;
-			this.typeName = options.typeName;
+			this.typeName = (this.optional ? '?' : '') + options.typeName;
 			this.fail = function (value: unknown) {
 				if (value === undefined && this.optional) {
 					return;
@@ -203,16 +203,16 @@ export namespace Types {
 		}
 	}
 
-	export type TypeValidatorArrayOptions<T extends AnyType = AnyType> = TypeValidatorOptions<T[]> & ArrayOptions<T>;
+	export type TypeValidatorArrayOptions<T extends OptionalTypeAny = OptionalTypeAny> = TypeValidatorOptions<T[]> & ArrayOptions<T>;
 
 	/**
 	 * Runtime type-checker
 	 */
-	export class TypeValidatorArray<T extends AnyType = AnyType> extends TypeValidator<T[]> implements TypeValidatorArrayOptions<T> {
+	export class TypeValidatorArray<T extends OptionalTypeAny = OptionalTypeAny> extends TypeValidator<T[]> implements TypeValidatorArrayOptions<T> {
 		public elementType: TypeValidator<T>;
 		constructor(options: TypeValidatorArrayOptions<T>) {
 			super(options);
-			this.elementType = options.elementType;
+			this.elementType = options.elementType ?? any() as TypeValidator<T>;
 		}
 	}
 
@@ -225,7 +225,7 @@ export namespace Types {
 		public valueType: TypeValidator<T[keyof T]>;
 		constructor(options: TypeValidatorObjectOptions<T>) {
 			super(options);
-			this.valueType = options.valueType;
+			this.valueType = options.valueType ?? any();
 		}
 	}
 
@@ -269,7 +269,7 @@ export namespace Types {
 		});
 	}
 
-	export function array<T extends AnyType>(options?: ArrayOptions<T>): TypeValidatorArray<T> {
+	export function array<T extends OptionalTypeAny>(options?: ArrayOptions<T>): TypeValidatorArray<T> {
 		const {defaultVal, optional, parser, elementType = any() as TypeValidator<T>} = options ?? {};
 		const validator = new TypeValidatorArray<T>({
 			defaultVal,
@@ -301,7 +301,7 @@ export namespace Types {
 			parser,
 			typeName: Array.from(choices, choice => {
 				if (choice instanceof TypeValidator) {
-					return choice.toString();
+					return choice.typeName;
 				}
 
 				return format('%o', choice);
@@ -337,21 +337,21 @@ export namespace Types {
 			parser,
 			typeName: 'struct',
 			fail(value) {
-				const objectValidator = object();
-				const objectValidationMessage = objectValidator.fail(value);
-				if (!objectValidator.check(value, objectValidationMessage)) {
-					return objectValidationMessage;
+				if (value?.constructor !== Object) {
+					return `The value should be an ${this.typeName}.`;
 				}
 
+				const object = value as ObjectLike;
+
 				const errorList: string[] = [];
-				for (const key in value) {
-					if (!Object.hasOwn(value, key)) {
+				for (const key in object) {
+					if (!Object.hasOwn(object, key)) {
 						continue;
 					}
 
 					const dynamic: DynamicPropertyCalculation = (
 						typeof dynamicProperties === 'function'
-							? dynamicProperties.apply(value as T, [key])
+							? dynamicProperties.apply(object as T, [key])
 							: dynamicProperties
 					) ?? {};
 
@@ -367,14 +367,14 @@ export namespace Types {
 						continue;
 					}
 
-					const message = propertyType.fail(value[key]);
-					if (!propertyType.check(value, message)) {
+					const message = propertyType.fail(object[key]);
+					if (!propertyType.check(object, message)) {
 						errorList.push(`Bad value for the key '${key}': ${message!}`);
 						continue;
 					}
 				}
 
-				const missingKeys = Object.keys(properties).filter(expectedKey => !Object.hasOwn(value, expectedKey));
+				const missingKeys = Object.keys(properties).filter(expectedKey => !Object.hasOwn(object, expectedKey));
 				if (missingKeys.length > 0) {
 					errorList.push(`Missing keys: '${missingKeys.join('\', \'')}'.`);
 				}
@@ -413,7 +413,7 @@ export namespace Types {
 					const value = object[key];
 
 					if (!valueType.check(value, 0)) {
-						errorList.push(`Invalid value type for the key '${key}'. Got ${format('%o', value)}.`);
+						errorList.push(`Invalid value type for the key '${key}'. Got ${format('%o', value)}. (?object: ${optional}, ?key: ${valueType.optional})`);
 						continue;
 					}
 				}
