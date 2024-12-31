@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 import assert from 'node:assert';
 import * as config from '../src/index.js';
 
@@ -33,6 +34,28 @@ it('struct', () => {
 
 	// Missing props
 	assert.ok(!config.Types.struct({properties: {data: config.Types.string()}}).check({}, 0));
+
+	// Dynamic allow any
+	assert.ok(config.Types.struct({
+		properties: {},
+		dynamicProperties: {override: true, validator: config.Types.any()},
+	}).check({}, 0));
+	assert.ok(config.Types.struct({
+		properties: {},
+		dynamicProperties: {override: true, validator: config.Types.any()},
+	}).check({test: 0}, 0));
+
+	// Dynamic allow only @
+	assert.ok(!config.Types.struct({
+		properties: {},
+		dynamicProperties: (_, [a]) => a.startsWith('@') ? {override: true, validator: config.Types.any()} : undefined,
+	}).check({test: 0}, 0));
+
+	// Dynamic allow only @
+	assert.ok(config.Types.struct({
+		properties: {},
+		dynamicProperties: (_, [a]) => a.startsWith('@') ? {override: true, validator: config.Types.any()} : undefined,
+	}).check({'@key': 0}, 0));
 });
 
 it('array', () => {

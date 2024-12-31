@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- Add `Config.setData`.
+- Add `TypeValidator.isObjectLike`.
+- Add `TypeValidatorStruct.hasOwn & getType`.
+- Add more tests.
+- Fix commander init type check.
+- Allow custom validators for `Config.isObjectLike` based on `TypeValidator.isObjectLike`.
+- Fix typo.
+- Fix dynamicProperties.
+
 ## [3.1.1] - 2024-12-30
 
 - Add '?' prefix for optional types.

@@ -136,9 +136,7 @@ export type ConfigOptions<ConfigType extends Types.OptionalTypeAny> = {
 	 * Configuration type check.
 	 * @see {@link Types} have many useful methods.
 	 */
-	type: ConfigType extends Types.ObjectLike
-		? Types.TypeValidatorStruct<ConfigType> | Types.TypeValidatorObject<ConfigType>
-		: Types.TypeValidator<ConfigType>;
+	type: Types.TypeValidator<ConfigType>;
 	/**
 	 * @see yaml, jsonc, ini and other similar packages.
 	 * @default JSON
@@ -150,9 +148,9 @@ export type ConfigOptions<ConfigType extends Types.OptionalTypeAny> = {
  * The configuration manager.
  */
 export class Config<ConfigType extends Types.OptionalTypeAny> implements Required<ConfigOptions<ConfigType>> {
-	public readonly path: string;
-	public readonly parser: Types.Parser;
-	public readonly type: ConfigType extends Types.ObjectLike ? Types.TypeValidatorStruct<ConfigType> | Types.TypeValidatorObject<ConfigType> : Types.TypeValidator<ConfigType>;
+	public readonly path;
+	public readonly parser;
+	public readonly type;
 
 	private data: ConfigType | undefined = undefined;
 
@@ -169,6 +167,10 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 		return structuredClone(this.data);
 	}
 
+	setData(data: ConfigType): void {
+		this.data = data;
+	}
+
 	/**
      * Loads the config from the {@link path}, if satisfies the type check.
      * @returns The error message for each invalid configuration key.
@@ -183,7 +185,7 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 
 		const message = this.type.fail(parsed) ?? this.type.fail(this.data);
 		if (this.type.check(parsed, message)) {
-			this.data = parsed as ConfigType;
+			this.data = parsed;
 		}
 
 		return message;
@@ -198,10 +200,10 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	}
 
 	/**
-	 * Checks if the config data satisfies a struct/object provided by the {@link type} property.
+	 * Checks if the data is object-like.
 	 */
-	isObjectLike(error: string | undefined | 0): this is Config<Types.ObjectLike> {
-		const isStructOrObjectValidator = this.type instanceof Types.TypeValidatorStruct || this.type instanceof Types.TypeValidatorObject;
+	isObjectLike(error: string | undefined | 0): this is Config<Types.ObjectLike<ConfigType>> {
+		const isStructOrObjectValidator = this.type.isObjectLike;
 		const isValidDataValue = this.type.check(this.data, error);
 		return isStructOrObjectValidator && isValidDataValue && this.data !== undefined;
 	}
@@ -362,7 +364,7 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 
 		let value = this.data[key];
 		if (mode === 'default' || (mode === 'real' && value === undefined)) {
-			value = this.type.defaultVal?.[key];
+			value = this.type.defaultVal![key];
 		}
 
 		return value;
@@ -388,7 +390,10 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 				return keys.map(key => {
 					const value = format('%o', this.get(key, {mode}));
 					if (types) {
-						const {typeName} = type instanceof Types.TypeValidatorStruct ? type.properties[key] : type.valueType;
+						const {typeName} = type instanceof Types.TypeValidatorStruct
+							? type.properties[key]
+							: (type instanceof Types.TypeValidatorObject
+								? type.valueType : type);
 						return `${key}\n${value}\n${typeName}`;
 					}
 
@@ -401,7 +406,10 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 			const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
 			return keys.map((key): string => {
 				const value = format('%o', this.get(key, {mode}));
-				const {typeName} = type instanceof Types.TypeValidatorStruct ? type.properties[key] : type.valueType;
+				const {typeName} = type instanceof Types.TypeValidatorStruct
+					? type.properties[key]
+					: (type instanceof Types.TypeValidatorObject
+						? type.valueType : type);
 				const pad = keyMaxLength - key.length;
 				const line = types ? format(
 					`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s${this.highlight(':', syntax)} %s`,

@@ -1,59 +1,60 @@
-import {format} from 'node:util';
 import * as commander from 'commander';
 import * as config from '../../index.js';
 import {Types} from '../../types.js';
 
-export const cfgRealOption = new commander.Option('--real', 'use default value(s) as fallback').default(false);
-export const cfgTypesOption = new commander.Option('--types', 'show types').default(false);
+const cfgRealOption = new commander.Option('--real', 'use default value(s) as fallback').default(false);
+const cfgTypesOption = new commander.Option('--types', 'show types').default(false);
 
+/**
+ * Object-like config only.
+ */
 export function initCommand<ConfigType extends Types.OptionalTypeAny>(cfg: config.Config<ConfigType>): commander.Command {
-	const data = cfg.getData();
-	const dataString = format('%o', data);
-
-	if (!cfg.isObjectLike(undefined)) {
-		throw new TypeError(`Can not initialize config command. Expected type: ${cfg.type.typeName}. Got: ${dataString}.`);
-	}
-
 	const cfgCommand = new commander.Command('config').aliases(['cfg']);
 
-	cfgCommand
-		.command('path').description('print the config file path')
-		.action(wrapAction(cfg, actionCfgPath));
+	cfgCommand.addCommand(cfgCommandPath.action(wrapAction(cfg, actionCfgPath)));
 
-	const argumentConfigKeyValue = new commander.Argument('[pair]', 'config property value or just value, if the config is not an object');
-	const argumentConfigKey = new commander.Argument('[key]', 'config property name');
+	if (!cfg.isObjectLike(0)) {
+		return cfgCommand;
+	}
 
-	if (cfg.type instanceof Types.TypeValidatorStruct) {
+	if (cfg.type instanceof Types.TypeValidatorStruct && cfg.type.dynamicProperties === undefined) {
 		argumentConfigKey.choices(cfg.keyList({mode: 'default'}));
 	}
 
-	cfgCommand
-		.command('set').description('set config values')
-		.addArgument(argumentConfigKeyValue)
-		.addOption(cfgRealOption)
-		.addOption(cfgTypesOption)
-		.action(wrapAction(cfg, actionCfgSet));
-	cfgCommand
-		.command('unset').description('delete config values, if specified, otherwise delete entire config')
-		.addArgument(argumentConfigKey)
-		.addOption(cfgRealOption)
-		.addOption(cfgTypesOption)
-		.action(wrapAction(cfg, actionCfgUnset));
-	cfgCommand
-		.command('get').description('print config values. You can use --real option to view real values')
-		.addArgument(argumentConfigKey)
-		.addOption(cfgRealOption)
-		.addOption(cfgTypesOption)
-		.action(wrapAction(cfg, actionCfgGet));
+	cfgCommand.addCommand(cfgCommandSet.action(wrapAction(cfg, actionCfgSet)));
+	cfgCommand.addCommand(cfgCommandUnset.action(wrapAction(cfg, actionCfgUnset)));
+	cfgCommand.addCommand(cfgCommandGet.action(wrapAction(cfg, actionCfgGet)));
 
 	return cfgCommand;
 }
 
-function wrapAction<ConfigType extends Types.ObjectLike>(
+const argumentConfigKeyValue = new commander.Argument('[pair]', 'config property value or just value, if the config is not an object');
+const argumentConfigKey = new commander.Argument('[key]', 'config property name');
+
+const cfgCommandPath = new commander.Command('path').description('print the config file path');
+const cfgCommandSet = new commander.Command('set').description('set config values')
+	.addArgument(argumentConfigKeyValue)
+	.addOption(cfgRealOption)
+	.addOption(cfgTypesOption);
+const cfgCommandUnset = new commander.Command('unset').description('delete config values, if specified, otherwise delete entire config')
+	.addArgument(argumentConfigKey)
+	.addOption(cfgRealOption)
+	.addOption(cfgTypesOption);
+const cfgCommandGet = new commander.Command('get').description('print config values. You can use --real option to view real values')
+	.addArgument(argumentConfigKey)
+	.addOption(cfgRealOption)
+	.addOption(cfgTypesOption);
+
+function wrapAction<ConfigType extends Types.OptionalTypeAny>(
 	cfg: config.Config<ConfigType>,
 	action: (cfg: config.Config<ConfigType>, ...arguments_: any[]) => string,
 ): (...arguments_: any[]) => void {
 	return (...arguments_: any[]) => {
+		const error = cfg.type.fail(cfg.getData());
+		if (!cfg.isObjectLike(0)) {
+			return `Configuration is not object-like. ${error}`;
+		}
+
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 		console.log(action(cfg, ...arguments_));
 	};
@@ -63,7 +64,7 @@ function actionCfgPath<ConfigType extends Types.OptionalTypeAny>(cfg: config.Con
 	return cfg.path;
 }
 
-function actionCfgSet<ConfigType extends Types.OptionalTypeAny>(
+function actionCfgSet<ConfigType extends Types.ObjectLike>(
 	cfg: config.Config<ConfigType>,
 	pair: string | undefined,
 	options: config.ConfigGetPrintableOptions,
@@ -92,7 +93,7 @@ function actionCfgSet<ConfigType extends Types.OptionalTypeAny>(
 	return cfg.getPrintable(key, options);
 }
 
-function actionCfgUnset<ConfigType extends Types.OptionalTypeAny>(
+function actionCfgUnset<ConfigType extends Types.ObjectLike>(
 	cfg: config.Config<ConfigType>,
 	key: string | undefined,
 	options: config.ConfigGetOptions,
@@ -110,6 +111,6 @@ function actionCfgUnset<ConfigType extends Types.OptionalTypeAny>(
 	return cfg.getPrintable(key, options);
 }
 
-function actionCfgGet<ConfigType extends Types.OptionalTypeAny>(cfg: config.Config<ConfigType>, key: config.ConfigPair<ConfigType>[0] | undefined, options: config.ConfigGetOptions): string {
+function actionCfgGet<ConfigType extends Types.ObjectLike>(cfg: config.Config<ConfigType>, key: config.ConfigPair<ConfigType>[0] | undefined, options: config.ConfigGetOptions): string {
 	return cfg.getPrintable(key, options);
 }

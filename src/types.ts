@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/class-literal-property-style */
 /* eslint-disable @typescript-eslint/no-namespace */
 import {format} from 'node:util';
 
@@ -10,7 +11,6 @@ export namespace Types {
 		stringify(value: unknown): string;
 	};
 
-	export type OptionalForOptions<T extends OptionalTypeAny, O extends undefined | TypeOptions> = O extends {optional: true} ? OptionalType<T> : T;
 	export type OptionalType<T extends OptionalTypeAny> = undefined | T;
 	// eslint-disable-next-line @typescript-eslint/consistent-indexed-object-style, @typescript-eslint/consistent-type-definitions
 	export interface ObjectLike<ValueT extends OptionalTypeAny = OptionalTypeAny> {
@@ -87,10 +87,10 @@ export namespace Types {
 
 	export type DynamicPropertyCalculation<T extends ObjectLike = ObjectLike> = {
 		/**
-		 * If undefined, the property is unexpected.
+		 * Value validator. If undefined, the property is unexpected.
 		 * @default undefined
 		 */
-		validator?: TypeValidator<T> | undefined;
+		validator?: TypeValidator<T[keyof T]> | undefined;
 		/**
 		 * If enabled, overrides the {@link StructOptions.properties} validator.
 		 * @default false
@@ -99,9 +99,20 @@ export namespace Types {
 		/**
 		 * Additional error message for the unexpected key.
 		 * @default undefined
+		 * @example "Should satisfy pattern."
 		 */
 		info?: string;
 	};
+
+	/**
+	 * @param property Current property.
+	 * @param overrided Overrided property.
+	 */
+	export type DynamicPropertyCallback<T extends ObjectLike> = (
+		object: T,
+		overrided: [
+			overridedProperty: string, validator: TypeValidator<T[keyof T]>,
+		]) => DynamicPropertyCalculation<T> | undefined;
 
 	export type StructOptions<T extends ObjectLike> = Omit<TypeOptions<T>, 'defaultVal'> & {
 		/**
@@ -111,10 +122,8 @@ export namespace Types {
 		/**
 		 * Dynamic properties type checking.
 		 * Can be used to allow unknown properties.
-		 *
-		 * If you are using it as a function you can get the value using `this[property]`.
 		 */
-		dynamicProperties?: DynamicPropertyCalculation | ((this: T, property: string) => DynamicPropertyCalculation | undefined);
+		dynamicProperties?: DynamicPropertyCalculation<T> | DynamicPropertyCallback<T>;
 	};
 
 	export type DateOptions = TypeOptions<Date>;
@@ -142,11 +151,12 @@ export namespace Types {
 	 * Runtime type-checker.
 	 */
 	export class TypeValidator<T extends OptionalTypeAny = OptionalTypeAny> implements TypeValidatorOptions<T> {
-		public parser;
-		public optional;
-		public defaultVal?: T;
-		public typeName;
-		public fail;
+		public readonly parser;
+		public readonly optional;
+		public readonly defaultVal?: T;
+		public readonly isObjectLike: boolean = false;
+		public readonly typeName;
+		public readonly fail;
 		public readonly afterParse;
 		constructor(options: TypeValidatorOptions<T>) {
 			this.defaultVal = options.defaultVal;
@@ -168,7 +178,7 @@ export namespace Types {
 		 * @param value The value to check.
 		 * @param error The error message for performance optimizations.
 		 */
-		public check(value: unknown, error: string | undefined | 0): value is (OptionalForOptions<T, typeof this>) {
+		public check(value: unknown, error: string | undefined | 0): value is T {
 			if (error === 0) {
 				error = this.fail(value);
 			}
@@ -209,7 +219,7 @@ export namespace Types {
 	 * Runtime type-checker
 	 */
 	export class TypeValidatorArray<T extends OptionalTypeAny = OptionalTypeAny> extends TypeValidator<T[]> implements TypeValidatorArrayOptions<T> {
-		public elementType: TypeValidator<T>;
+		public readonly elementType: TypeValidator<T>;
 		constructor(options: TypeValidatorArrayOptions<T>) {
 			super(options);
 			this.elementType = options.elementType ?? any() as TypeValidator<T>;
@@ -222,7 +232,8 @@ export namespace Types {
 	 * Runtime type-checker
 	 */
 	export class TypeValidatorObject<T extends ObjectLike = ObjectLike> extends TypeValidator<T> implements TypeValidatorObjectOptions<T> {
-		public valueType: TypeValidator<T[keyof T]>;
+		public readonly valueType: TypeValidator<T[keyof T]>;
+		public readonly isObjectLike = true;
 		constructor(options: TypeValidatorObjectOptions<T>) {
 			super(options);
 			this.valueType = options.valueType ?? any();
@@ -236,9 +247,10 @@ export namespace Types {
 	 * Runtime type-checker
 	 */
 	export class TypeValidatorStruct<T extends ObjectLike> extends TypeValidator<T> implements TypeValidatorStructOptions<T> {
-		public defaultVal: T;
-		public properties: TypeValidatorStructProperties<T>;
-		public dynamicProperties: DynamicPropertyCalculation | ((property: string) => DynamicPropertyCalculation | undefined) | undefined;
+		public readonly defaultVal;
+		public readonly properties;
+		public readonly isObjectLike = true;
+		public readonly dynamicProperties;
 		constructor(options: TypeValidatorStructOptions<T>) {
 		// eslint-disable-next-line unicorn/prevent-abbreviations
 			const defaultVal = Object.fromEntries(Object.entries(options.properties).map(([key, type]) => [key, type.defaultVal])) as T;
@@ -246,6 +258,40 @@ export namespace Types {
 			this.defaultVal = defaultVal;
 			this.properties = options.properties;
 			this.dynamicProperties = options.dynamicProperties;
+		}
+
+		/**
+		 * Check using {@link properties} and {@link dynamicProperties}.
+		 */
+		getType(object: T, key: (keyof T) & string): [
+			propertyType: TypeValidator<T[keyof T]> | undefined,
+			DynamicPropertyCalculation<T>,
+		] {
+			if (!Object.hasOwn(object, key)) {
+				return [undefined, {}];
+			}
+
+			let dynamic: DynamicPropertyCalculation<T> | undefined = typeof this.dynamicProperties === 'function'
+				? this.dynamicProperties(object, [key, this.properties[key]])
+				: this.dynamicProperties;
+
+			dynamic ??= {};
+			dynamic.override ??= false;
+
+			const propertyType = (
+				dynamic.override
+					? dynamic.validator ?? this.properties[key]
+					: this.properties[key] ?? dynamic.validator
+			) as TypeValidator<T[keyof T]> | undefined;
+
+			return [propertyType, dynamic];
+		}
+
+		/**
+		 * Check using {@link properties} and {@link dynamicProperties}.
+		 */
+		hasOwn(object: T, key: (keyof T) & string): key is (keyof T) & string {
+			return this.getType(object, key) === undefined;
 		}
 	}
 
@@ -338,10 +384,10 @@ export namespace Types {
 			typeName: 'struct',
 			fail(value) {
 				if (value?.constructor !== Object) {
-					return `The value should be an ${this.typeName}.`;
+					return `The value should be a ${this.typeName}.`;
 				}
 
-				const object = value as ObjectLike;
+				const object = value as T;
 
 				const errorList: string[] = [];
 				for (const key in object) {
@@ -349,27 +395,17 @@ export namespace Types {
 						continue;
 					}
 
-					const dynamic: DynamicPropertyCalculation = (
-						typeof dynamicProperties === 'function'
-							? dynamicProperties.apply(object as T, [key])
-							: dynamicProperties
-					) ?? {};
-
-					const {override = false, validator, info} = dynamic;
-
-					const propertyType: TypeValidator | undefined
-					= override
-						? validator ?? properties[key]
-						: properties[key] ?? validator;
+					const propertyTypeInfo = TypeValidatorStruct.prototype.getType.bind(this)(object, key);
+					const [propertyType, dynamic] = propertyTypeInfo;
 
 					if (!propertyType) {
-						errorList.push(`Unexpected key '${key}'.` + (info ? ' ' + info : ''));
+						errorList.push(`Unexpected key '${key}'.` + (dynamic.info ? ' ' + dynamic.info : ''));
 						continue;
 					}
 
 					const message = propertyType.fail(object[key]);
 					if (!propertyType.check(object, message)) {
-						errorList.push(`Bad value for the key '${key}': ${message!}`);
+						errorList.push(`Bad value for the key '${key}'. ${message!}`);
 						continue;
 					}
 				}
