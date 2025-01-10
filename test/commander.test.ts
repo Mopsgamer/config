@@ -1,5 +1,6 @@
+import * as commander from 'commander';
 import * as config from '../src/index.js';
-import * as commander from '../src/integration/commander/index.js';
+import * as integration from '../src/integration/commander/index.js';
 
 const getCfg = (optional: boolean, useDefaultData: boolean) => {
 	const cfg = new config.Config({
@@ -20,20 +21,20 @@ const getCfg = (optional: boolean, useDefaultData: boolean) => {
 
 it('type:struct commander init after load', () => {
 	const cfg = getCfg(false, true);
-	commander.initCommand(cfg);
+	integration.initCommand(cfg, {commander});
 });
 
 it('type:struct commander init before load', () => {
 	const cfg = getCfg(false, false);
-	commander.initCommand(cfg);
+	integration.initCommand(cfg, {commander});
 });
 
 it('type:?struct commander init after load', () => {
 	const cfg = getCfg(true, true);
-	commander.initCommand(cfg);
+	integration.initCommand(cfg, {commander});
 });
 
 it('type:?struct commander init before load', () => {
 	const cfg = getCfg(true, false);
-	commander.initCommand(cfg);
+	integration.initCommand(cfg, {commander});
 });

@@ -17,10 +17,6 @@ importers:
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
-    optionalDependencies:
-      commander:
-        specifier: ^12.1.0
-        version: 12.1.0
     devDependencies:
       '@release-it/keep-a-changelog':
         specifier: ^5.0.0
@@ -49,6 +45,10 @@ importers:
       xo:
         specifier: ^0.59.3
         version: 0.59.3(@types/eslint@9.6.1)(webpack@5.93.0)
+    optionalDependencies:
+      commander:
+        specifier: '>=8'
+        version: 12.1.0
 
 packages:
 

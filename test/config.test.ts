@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import * as config from '../src/index.js';
 
-const getCfg = (optional: boolean, useDefaultData: boolean) => {
+const getCfg = (optional: boolean, asLoaded: boolean) => {
 	const cfg = new config.Config({
 		path: '',
 		type: config.Types.struct({
@@ -11,7 +11,7 @@ const getCfg = (optional: boolean, useDefaultData: boolean) => {
 			},
 		}),
 	});
-	if (useDefaultData) {
+	if (asLoaded) {
 		cfg.setData(cfg.type.defaultVal!);
 	}
 
@@ -20,12 +20,12 @@ const getCfg = (optional: boolean, useDefaultData: boolean) => {
 
 it('type:struct is object before load', () => {
 	const cfg = getCfg(false, false);
-	assert(!cfg.isObjectLike(0));
+	assert(cfg.isObjectLike(0));
 });
 
 it('type:?struct is object before load', () => {
 	const cfg = getCfg(true, false);
-	assert(!cfg.isObjectLike(0));
+	assert(cfg.isObjectLike(0));
 });
 
 it('type:struct is object after load', () => {

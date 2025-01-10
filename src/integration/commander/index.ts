@@ -1,15 +1,72 @@
-import * as commander from 'commander';
 import * as config from '../../index.js';
 import {Types} from '../../types.js';
 
-const cfgRealOption = new commander.Option('--real', 'use default value(s) as fallback').default(false);
-const cfgTypesOption = new commander.Option('--types', 'show types').default(false);
+export type ArgumentClassAdapter = {
+	prototype: ArgumentAdapter;
+	new (argument: string, description?: string): ArgumentAdapter;
+};
+export type ArgumentAdapter = {
+	choices(values: readonly string[]): ArgumentAdapter;
+};
+
+export type CommandClassAdapter = {
+	prototype: CommandAdapter;
+	new (argument: string, description?: string): CommandAdapter;
+};
+export type CommandAdapter = {
+	addCommand(argument: CommandAdapter): CommandAdapter;
+	addArgument(argument: ArgumentAdapter): CommandAdapter;
+	addOption(option: OptionAdapter): CommandAdapter;
+	action(action: () => any): CommandAdapter;
+	aliases(aliases: string[]): CommandAdapter;
+	description(description: string): CommandAdapter;
+};
+
+export type OptionClassAdapter = {
+	prototype: OptionAdapter;
+	new (argument: string, description?: string): OptionAdapter;
+};
+export type OptionAdapter = {
+	default(value: any): OptionAdapter;
+};
+
+export type CommanderAdapter = {
+	Argument: ArgumentClassAdapter;
+	Command: CommandClassAdapter;
+	Option: OptionClassAdapter;
+};
+
+export type Options = {
+	commander: CommanderAdapter;
+};
 
 /**
  * Object-like config only.
  */
-export function initCommand<ConfigType extends Types.OptionalTypeAny>(cfg: config.Config<ConfigType>): commander.Command {
-	const cfgCommand = new commander.Command('config').aliases(['cfg']);
+export function initCommand<ConfigType extends Types.OptionalTypeAny, O extends Options>(cfg: config.Config<ConfigType>, options: O): (O['commander']['Command'])['prototype'] {
+	// eslint-disable-next-line @typescript-eslint/naming-convention
+	const {Command, Argument, Option} = options.commander;
+	const cfgCommand = new Command('config').aliases(['cfg']);
+
+	const argumentConfigKeyValue = new Argument('[pair]', 'config property value or just value, if the config is not an object');
+	const argumentConfigKey = new Argument('[key]', 'config property name');
+
+	const cfgRealOption = new Option('--real', 'use default value(s) as fallback').default(false);
+	const cfgTypesOption = new Option('--types', 'show types').default(false);
+
+	const cfgCommandPath = new Command('path').description('print the config file path');
+	const cfgCommandSet = new Command('set').description('set config values')
+		.addArgument(argumentConfigKeyValue)
+		.addOption(cfgRealOption)
+		.addOption(cfgTypesOption);
+	const cfgCommandUnset = new Command('unset').description('delete config values, if specified, otherwise delete entire config')
+		.addArgument(argumentConfigKey)
+		.addOption(cfgRealOption)
+		.addOption(cfgTypesOption);
+	const cfgCommandGet = new Command('get').description('print config values. You can use --real option to view real values')
+		.addArgument(argumentConfigKey)
+		.addOption(cfgRealOption)
+		.addOption(cfgTypesOption);
 
 	cfgCommand.addCommand(cfgCommandPath.action(wrapAction(cfg, actionCfgPath)));
 
@@ -28,23 +85,6 @@ export function initCommand<ConfigType extends Types.OptionalTypeAny>(cfg: confi
 	return cfgCommand;
 }
 
-const argumentConfigKeyValue = new commander.Argument('[pair]', 'config property value or just value, if the config is not an object');
-const argumentConfigKey = new commander.Argument('[key]', 'config property name');
-
-const cfgCommandPath = new commander.Command('path').description('print the config file path');
-const cfgCommandSet = new commander.Command('set').description('set config values')
-	.addArgument(argumentConfigKeyValue)
-	.addOption(cfgRealOption)
-	.addOption(cfgTypesOption);
-const cfgCommandUnset = new commander.Command('unset').description('delete config values, if specified, otherwise delete entire config')
-	.addArgument(argumentConfigKey)
-	.addOption(cfgRealOption)
-	.addOption(cfgTypesOption);
-const cfgCommandGet = new commander.Command('get').description('print config values. You can use --real option to view real values')
-	.addArgument(argumentConfigKey)
-	.addOption(cfgRealOption)
-	.addOption(cfgTypesOption);
-
 function wrapAction<ConfigType extends Types.OptionalTypeAny>(
 	cfg: config.Config<ConfigType>,
 	action: (cfg: config.Config<ConfigType>, ...arguments_: any[]) => string,
@@ -52,7 +92,7 @@ function wrapAction<ConfigType extends Types.OptionalTypeAny>(
 	return (...arguments_: any[]) => {
 		const error = cfg.type.fail(cfg.getData());
 		if (!cfg.isObjectLike(0)) {
-			return `Configuration is not object-like. ${error}`;
+			return `Configuration value is bad. ${error}`;
 		}
 
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument

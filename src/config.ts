@@ -152,12 +152,13 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	public readonly parser;
 	public readonly type;
 
-	private data: ConfigType | undefined = undefined;
+	private data: ConfigType | undefined;
 
 	constructor(options: ConfigOptions<ConfigType>) {
 		this.path = options.path;
 		this.parser = options.parser ?? JSON;
 		this.type = options.type;
+		this.data = this.type.defaultVal;
 	}
 
 	/**
@@ -202,10 +203,10 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	/**
 	 * Checks if the data is object-like.
 	 */
-	isObjectLike(error: string | undefined | 0): this is Config<Types.ObjectLike<ConfigType>> {
+	isObjectLike(error: string | undefined | 0): this is Config<Types.ObjectLike> {
 		const isStructOrObjectValidator = this.type.isObjectLike;
 		const isValidDataValue = this.type.check(this.data, error);
-		return isStructOrObjectValidator && isValidDataValue && this.data !== undefined;
+		return isStructOrObjectValidator && isValidDataValue;
 	}
 
 	/**
@@ -250,20 +251,19 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
      * @param key The name of the configuration key.
      * @param value The new value for the configuration key.
      */
-	failSet<T extends ConfigPair<ConfigType>>(key: T[0], value: T[1]): string | undefined;
+	failSet<T extends ConfigPair<Types.ObjectLike<ConfigType>>>(key: T[0], value: T[1]): string | undefined;
 	failSet(key: string, value: unknown): string | undefined;
 	failSet(key: string, value: unknown): string | undefined {
-		let error = this.type.fail(this.data);
-		if (!this.isObjectLike(error) || !this.data) {
-			return `Unable to set the key: '${key}'. Not object-like. ${error}`;
+		if (!this.isObjectLike(undefined)) {
+			return `Unable to set the key: '${key}'.`;
 		}
 
-		error = this.type.fail(value);
+		const error = this.type.fail(value);
 		if (!this.type.check(value, error)) {
-			return `Unable to set the key: '${key}'. Got: ${format('%o', value)}. Not object-like. ${error}`;
+			return `Unable to set the key: '${key}'. Got: ${format('%o', value)}. ${error}`;
 		}
 
-		this.data[key] = value;
+		((this.data as Types.ObjectLike) ||= {})[key] = value;
 	}
 
 	/**
@@ -289,7 +289,7 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	failUnset(key?: string): string | undefined {
 		const error = this.type.fail(this.data);
 		if (!this.isObjectLike(error) || !this.data) {
-			return `Unable to unset the key: '${key}'. Not object-like. ${error}`;
+			return `Unable to unset the key: '${key}'. ${error}`;
 		}
 
 		if (key !== undefined) {
@@ -324,9 +324,8 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
      * @returns An array of properties which defined in the configuration file.
      */
 	keyList(options?: ConfigKeyListOptions): string[] {
-		const error = this.type.fail(this.data);
-		if (!this.isObjectLike(error) || !this.data) {
-			throw new TypeError(`Unable to list keys. Not object-like. ${error}`);
+		if (!this.isObjectLike(undefined)) {
+			throw new TypeError('Unable to list keys.');
 		}
 
 		const {mode = 'current'} = options ?? {};
@@ -344,7 +343,7 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 		}
 
 		// 'current'
-		return Object.keys(this.data);
+		return this.data ? Object.keys(this.data) : [];
 	}
 
 	/**
@@ -355,14 +354,13 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	get<T extends keyof ConfigType>(key: T, options?: ConfigGetOptions): ConfigType[T];
 	get(key: string, options?: ConfigGetOptions): unknown;
 	get(key: string, options?: ConfigGetOptions): unknown {
-		const error = this.type.fail(this.data);
-		if (!this.isObjectLike(error) || !this.data) {
-			throw new TypeError(`Unable to get the key or keys. Not object-like. ${error}`);
+		if (!this.isObjectLike(undefined)) {
+			throw new TypeError('Unable to get the key or keys.');
 		}
 
 		const {mode = 'real'} = options ?? {};
 
-		let value = this.data[key];
+		let value = ((this.data as Types.ObjectLike) ||= {})[key];
 		if (mode === 'default' || (mode === 'real' && value === undefined)) {
 			value = this.type.defaultVal![key];
 		}

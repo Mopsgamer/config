@@ -2,6 +2,17 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 import {format} from 'node:util';
 
+function labeledNumber(number: number): string {
+	let label = '';
+	if (number === Number.MAX_SAFE_INTEGER) {
+		label = 'Max safe integer';
+	} else if (number === Number.MIN_SAFE_INTEGER) {
+		label = 'Min safe integer';
+	}
+
+	return `${number} (${label})`;
+}
+
 /**
  * Run-time type ckecking.
  */
@@ -536,18 +547,15 @@ export namespace Types {
 			parser,
 			typeName: 'number',
 			fail(value) {
-				const maximum = Math.min(max, Number.MAX_SAFE_INTEGER);
-				const minimum = Math.max(min, Number.MIN_SAFE_INTEGER);
 				const valueString = String(value);
-				const error = `Should be a ${this.typeName}: ${minimum} - ${maximum}. Got: ${format('%o', value)}.`;
+				const error = `Should be a ${this.typeName}: ${labeledNumber(min)} - ${labeledNumber(max)}. Got: ${format('%o', value)}.`;
 
 				if (typeof value !== 'number') {
 					return error;
 				}
 
-				const minimax = (value <= maximum && value >= minimum);
-				const infinit = (value === Infinity && max === Infinity) || (value === -Infinity && min === -Infinity);
-				if (!(minimax || infinit)) {
+				const minimax = (value <= max && value >= min);
+				if (!minimax) {
 					return error;
 				}
 
@@ -577,9 +585,7 @@ export namespace Types {
 					return;
 				}
 
-				const maximum = Math.min(max, Number.MAX_SAFE_INTEGER);
-				const minimum = Math.max(min, Number.MIN_SAFE_INTEGER);
-				return `The value should be an ${this.typeName}: ${minimum} - ${maximum}. Got: ${format('%o', value)}.`;
+				return `The value should be an ${this.typeName}: ${labeledNumber(min)} - ${labeledNumber(max)}. Got: ${format('%o', value)}.`;
 			},
 		});
 
