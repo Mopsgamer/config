@@ -1,3 +1,4 @@
+import * as commander from 'commander';
 import * as config from '../../index.js';
 import {Types} from '../../types.js';
 
@@ -37,20 +38,20 @@ export type CommanderAdapter = {
 };
 
 export type Options = {
-	commander: CommanderAdapter;
+	adapter: CommanderAdapter;
 };
 
 /**
  * Object-like config only.
  */
-export function initCommand<ConfigType extends Types.OptionalTypeAny, O extends Options>(cfg: config.Config<ConfigType>, options: O): (O['commander']['Command'])['prototype'] {
+export function initCommand<ConfigType extends Types.OptionalTypeAny, O extends Options>(cfg: config.Config<ConfigType>, options?: O): (O['adapter']['Command'])['prototype'] {
+	const {adapter} = options ?? {};
 	// eslint-disable-next-line @typescript-eslint/naming-convention
-	const {Command, Argument, Option} = options.commander;
-	const cfgCommand = new Command('config').aliases(['cfg']);
+	const {Command, Argument, Option} = adapter ?? commander as CommanderAdapter;
 
 	const argumentConfigKeyValue = new Argument('[pair]', 'config property value or just value, if the config is not an object');
 	const argumentConfigKey = new Argument('[key]', 'config property name');
-
+	const cfgCommand = new Command('config').aliases(['cfg']);
 	const cfgRealOption = new Option('--real', 'use default value(s) as fallback').default(false);
 	const cfgTypesOption = new Option('--types', 'show types').default(false);
 

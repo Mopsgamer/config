@@ -21,20 +21,20 @@ const getCfg = (optional: boolean, useDefaultData: boolean) => {
 
 it('type:struct commander init after load', () => {
 	const cfg = getCfg(false, true);
-	integration.initCommand(cfg, {commander});
+	integration.initCommand(cfg, {adapter: commander});
 });
 
 it('type:struct commander init before load', () => {
 	const cfg = getCfg(false, false);
-	integration.initCommand(cfg, {commander});
+	integration.initCommand(cfg, {adapter: commander});
 });
 
 it('type:?struct commander init after load', () => {
 	const cfg = getCfg(true, true);
-	integration.initCommand(cfg, {commander});
+	integration.initCommand(cfg, {adapter: commander});
 });
 
 it('type:?struct commander init before load', () => {
 	const cfg = getCfg(true, false);
-	integration.initCommand(cfg, {commander});
+	integration.initCommand(cfg, {adapter: commander});
 });
