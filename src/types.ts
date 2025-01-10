@@ -10,6 +10,10 @@ function labeledNumber(number: number): string {
 		label = 'Min safe integer';
 	}
 
+	if (label === '') {
+		return String(number);
+	}
+
 	return `${number} (${label})`;
 }
 
