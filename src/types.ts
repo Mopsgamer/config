@@ -72,7 +72,13 @@ export namespace Types {
 	};
 
 	export type IntegerOptions = TypeOptions<number> & {
+		/**
+		 * @default -Infinity
+		 */
 		min?: number;
+		/**
+		 * @default Infinity
+		 */
 		max?: number;
 		/**
 		 * @returns Error message.
@@ -404,14 +410,18 @@ export namespace Types {
 
 				const object = value as T;
 
+				const getType = TypeValidatorStruct.prototype.getType.bind(this);
+
+				const typeKeys = new Set(Object.keys(properties));
+				const keysToProcess = new Set([...typeKeys].concat(Object.keys(object)));
+
 				const errorList: string[] = [];
-				for (const key in object) {
+				for (const key of keysToProcess) {
 					if (!Object.hasOwn(object, key)) {
 						continue;
 					}
 
-					const propertyTypeInfo = TypeValidatorStruct.prototype.getType.bind(this)(object, key);
-					const [propertyType, dynamic] = propertyTypeInfo;
+					const [propertyType, dynamic] = getType(object, key);
 
 					if (!propertyType) {
 						errorList.push(`Unexpected key '${key}'.` + (dynamic.info ? ' ' + dynamic.info : ''));
@@ -419,15 +429,10 @@ export namespace Types {
 					}
 
 					const message = propertyType.fail(object[key]);
-					if (!propertyType.check(object, message)) {
+					if (!propertyType.check(object[key], message)) {
 						errorList.push(`Bad value for the key '${key}'. ${message!}`);
 						continue;
 					}
-				}
-
-				const missingKeys = Object.keys(properties).filter(expectedKey => !Object.hasOwn(object, expectedKey));
-				if (missingKeys.length > 0) {
-					errorList.push(`Missing keys: '${missingKeys.join('\', \'')}'.`);
 				}
 
 				if (errorList.length > 0) {
@@ -578,18 +583,37 @@ export namespace Types {
 	}
 
 	export function integer(options?: NumberOptions): TypeValidator<number> {
-		const {defaultVal, optional, parser, min = -Infinity, max = Infinity} = options ?? {};
+		const {defaultVal, optional, pattern, parser, min = -Infinity, max = Infinity} = options ?? {};
 		const validator = new TypeValidator<number>({
 			defaultVal,
 			optional,
 			parser,
 			typeName: 'integer',
 			fail(value) {
-				if (number(options).check(value, 0) && Number.isInteger(value)) {
-					return;
+				const valueString = String(value);
+				const error = `Should be an ${this.typeName}: ${labeledNumber(min)} - ${labeledNumber(max)}. Got: ${format('%o', value)}.`;
+
+				if (typeof value !== 'number') {
+					return error;
 				}
 
-				return `The value should be an ${this.typeName}: ${labeledNumber(min)} - ${labeledNumber(max)}. Got: ${format('%o', value)}.`;
+				const minimax = (value <= max && value >= min);
+				if (!minimax) {
+					return error;
+				}
+
+				if (pattern instanceof RegExp) {
+					if (!pattern.test(valueString)) {
+						return `Should satisfy the regex pattern: ${pattern.source}. Got: '${format('%o', value)}'.`;
+					}
+				} else if (pattern) {
+					const message = pattern(value, valueString);
+					return `Should be a specific ${this.typeName}. Got: '${format('%o', value)}'.${message ? ' ' + message : ''}`;
+				}
+
+				if (!Number.isInteger(value)) {
+					return error;
+				}
 			},
 		});
 

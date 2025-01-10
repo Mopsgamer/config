@@ -25,15 +25,17 @@ it('struct', () => {
 	assert.ok(config.Types.struct({properties: {}}).check(new Object(), 0)); // eslint-disable-line no-object-constructor
 	assert.ok(config.Types.struct({properties: {}}).check({}, 0));
 
+	// Optional
+	assert.ok(config.Types.struct({properties: {data: config.Types.number({optional: true})}}).check({data: 1}, 0));
+	assert.ok(config.Types.struct({properties: {data: config.Types.number({optional: true})}}).check({data: undefined}, 0));
+	assert.ok(config.Types.struct({properties: {data: config.Types.number({optional: true})}}).check({}, 0));
+
 	// Bad type props
 	assert.ok(config.Types.struct({properties: {data: config.Types.number()}}).check({data: 1}, 0));
 	assert.ok(!config.Types.struct({properties: {data: config.Types.string()}}).check({data: 1}, 0));
 
 	// Too many props
 	assert.ok(!config.Types.struct({properties: {}}).check({data: 1}, 0));
-
-	// Missing props
-	assert.ok(!config.Types.struct({properties: {data: config.Types.string()}}).check({}, 0));
 
 	// Dynamic allow any
 	assert.ok(config.Types.struct({
@@ -81,6 +83,13 @@ it('number', () => {
 	assert.ok(config.Types.number().check(1, 0));
 	assert.ok(config.Types.number().check(1.1, 0));
 	assert.ok(config.Types.number().check(0, 0));
+
+	assert.ok(config.Types.number({min: 0, max: Infinity}).check(0, 0));
+	assert.ok(config.Types.number({min: 0, max: Infinity}).check(Infinity, 0));
+	assert.ok(config.Types.number({min: -Infinity, max: 0}).check(-Infinity, 0));
+
+	assert.ok(config.Types.number({min: 0}).check(Infinity, 0));
+	assert.ok(config.Types.number({max: 0}).check(-Infinity, 0));
 
 	assert.ok(!config.Types.number({max: 100}).check(101, 0));
 	assert.ok(config.Types.number({max: 100}).check(99, 0));
