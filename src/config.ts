@@ -375,7 +375,7 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	getPrintable<T extends ConfigPair<ConfigType>[0]>(keys?: T | T[], options?: ConfigGetPrintableOptions): string;
 	getPrintable(keys?: string | string[], options?: ConfigGetPrintableOptions): string;
 	getPrintable(keys?: string | string[], options?: ConfigGetPrintableOptions): string {
-		const {mode = 'current', types = true, syntax, parsable} = options ?? {};
+		const {mode = 'current', types = true, syntax = {}, parsable} = options ?? {};
 		if (this.isObjectLike(0)) {
 			const {type} = this;
 			keys ??= this.keyList({mode});
@@ -409,18 +409,24 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 					: (type instanceof Types.TypeValidatorObject
 						? type.valueType : type);
 				const pad = keyMaxLength - key.length;
-				const line = types ? format(
-					`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s${this.highlight(':', syntax)} %s`,
-					(syntax ? chalk.hex('#FFBC42')(key) : key),
-					syntax ? this.highlight(value, syntax) : value,
-					(syntax ? chalk.dim(this.highlight(typeName, syntax)) : typeName),
-				) : format(
-					`${' '.repeat(pad)}%s ${this.highlight('=', syntax)} %s`,
-					(syntax ? chalk.hex('#FFBC42')(key) : key),
-					syntax ? this.highlight(value, syntax) : value,
-				);
 
-				return line;
+				const coloredKey = chalk.hex('#FFBC42')(key);
+				const coloredValue = highlight(value, syntax);
+				if (types) {
+					const coloredType = chalk.dim(highlight(typeName, syntax));
+					return format(
+						`${' '.repeat(pad)}%s ${highlight('=', syntax)} %s${highlight(':', syntax)} %s`,
+						coloredKey,
+						coloredValue,
+						coloredType,
+					);
+				}
+
+				return format(
+					`${' '.repeat(pad)}%s ${highlight('=', syntax)} %s`,
+					coloredKey,
+					coloredValue,
+				);
 			}).join('\n');
 		}
 
@@ -437,18 +443,24 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 		const value = format('%o', this.data);
 		const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
 		const {typeName} = this.type;
-		const line = types ? format(
-			`%s${this.highlight(':', syntax)} %s`,
-			(syntax ? chalk.hex('#FFBC42')(this.data) : this.data),
-			syntax ? this.highlight(value, syntax) : value,
-			(syntax ? chalk.dim(this.highlight(typeName, syntax)) : typeName),
-		) : format(
-			'%s',
-			(syntax ? chalk.hex('#FFBC42')(this.data) : this.data),
-			syntax ? this.highlight(value, syntax) : value,
-		);
 
-		return line;
+		const coloredKey = chalk.hex('#FFBC42')(this.data);
+		const coloredValue = highlight(value, syntax);
+		if (types) {
+			const coloredType = chalk.dim(highlight(typeName, syntax));
+			return format(
+				`%s${highlight(':', syntax)} %s`,
+				coloredKey,
+				coloredValue,
+				coloredType,
+			);
+		}
+
+		return format(
+			'%s',
+			coloredKey,
+			coloredValue,
+		);
 	}
 
 	/**
@@ -462,71 +474,68 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 
 		return this.type.stringify(this.data as never);
 	}
+}
 
-	/**
-     * Add some colors for the syntax.
-     * @see {@link getPrintable}.
-     */
-	highlight(text: string, options?: ConfigHighlightOptions): string {
-		const chalk = options?.chalk ?? new Chalk();
-		if (chalk === undefined) {
-			return text;
-		}
+/**
+ * For command-line printing purposes. Add some colors for the syntax.
+ * @see {@link Config.getPrintable}.
+ */
+export function highlight(text: string, options?: ConfigHighlightOptions): string {
+	const chalk = options?.chalk ?? new Chalk();
 
-		const rtype = /^(?<=\s*)(switch|boolean|object|string|number|integer)(\[])*(?=\s*)$/;
-		if (rtype.test(text)) {
-			return chalk.hex(options?.types ?? '#9999ff')(text);
-		}
-
-		const rseparator = /([,.\-:="|])/g;
-		const rstring = /'[^']+'/g;
-		const rbracketsSquare = /(\[|])/g;
-		const rbracketsRound = /(\(|\))/g;
-		const rbracketsAngle = /(<|>)/g;
-		const rnumber = /\d+/g;
-		const rspecial = /(true|false|null|Infinity)/g;
-
-		const rall = new RegExp(`${
-			[ansiRegex(), rstring, rseparator, rbracketsSquare, rbracketsRound, rbracketsAngle, rnumber, rspecial]
-				.map(r => `(${typeof r === 'string' ? r : r.source})`)
-				.join('|')
-		}`, 'g');
-
-		const colored = text.replaceAll(rall, match => {
-			if (match.match(ansiRegex()) !== null) {
-				return match;
-			}
-
-			if (match.match(rstring) !== null) {
-				return match.replace(/^'[^']*'$/, chalk.hex(options?.strings ?? '#A2D2FF')('$&'));
-			}
-
-			if (match.match(rseparator) !== null) {
-				return chalk.hex(options?.separators ?? '#D81159')(match);
-			}
-
-			if (match.match(rbracketsSquare) !== null) {
-				return chalk.hex(options?.squareBrackets ?? '#B171D9')(match);
-			}
-
-			if (match.match(rbracketsRound) !== null) {
-				return chalk.hex(options?.squareRound ?? '#B171D9')(match);
-			}
-
-			if (match.match(rbracketsAngle) !== null) {
-				return chalk.hex(options?.squareAngle ?? '#B171D9')(match);
-			}
-
-			if (match.match(rnumber) !== null) {
-				return chalk.hex(options?.numbers ?? '#73DEA7')(match);
-			}
-
-			if (match.match(rspecial) !== null) {
-				return chalk.hex(options?.specials ?? '#73A7DE')(match);
-			}
-
-			return match;
-		});
-		return colored;
+	const rtype = /^(?<=\s*)(switch|boolean|object|string|number|integer)(\[])*(?=\s*)$/;
+	if (rtype.test(text)) {
+		return chalk.hex(options?.types ?? '#9999ff')(text);
 	}
+
+	const rseparator = /([,.\-:="|])/g;
+	const rstring = /'[^']+'/g;
+	const rbracketsSquare = /(\[|])/g;
+	const rbracketsRound = /(\(|\))/g;
+	const rbracketsAngle = /(<|>)/g;
+	const rnumber = /\d+/g;
+	const rspecial = /(true|false|null|Infinity)/g;
+
+	const rall = new RegExp(`${
+		[ansiRegex(), rstring, rseparator, rbracketsSquare, rbracketsRound, rbracketsAngle, rnumber, rspecial]
+			.map(r => `(${typeof r === 'string' ? r : r.source})`)
+			.join('|')
+	}`, 'g');
+
+	const colored = text.replaceAll(rall, match => {
+		if (match.match(ansiRegex()) !== null) {
+			return match;
+		}
+
+		if (match.match(rstring) !== null) {
+			return match.replace(/^'[^']*'$/, chalk.hex(options?.strings ?? '#A2D2FF')('$&'));
+		}
+
+		if (match.match(rseparator) !== null) {
+			return chalk.hex(options?.separators ?? '#D81159')(match);
+		}
+
+		if (match.match(rbracketsSquare) !== null) {
+			return chalk.hex(options?.squareBrackets ?? '#B171D9')(match);
+		}
+
+		if (match.match(rbracketsRound) !== null) {
+			return chalk.hex(options?.squareRound ?? '#B171D9')(match);
+		}
+
+		if (match.match(rbracketsAngle) !== null) {
+			return chalk.hex(options?.squareAngle ?? '#B171D9')(match);
+		}
+
+		if (match.match(rnumber) !== null) {
+			return chalk.hex(options?.numbers ?? '#73DEA7')(match);
+		}
+
+		if (match.match(rspecial) !== null) {
+			return chalk.hex(options?.specials ?? '#73A7DE')(match);
+		}
+
+		return match;
+	});
+	return colored;
 }

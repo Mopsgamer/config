@@ -29,6 +29,7 @@ export type OptionClassAdapter = {
 };
 export type OptionAdapter = {
 	default(value: any): OptionAdapter;
+	choices(values: readonly string[]): OptionAdapter;
 };
 
 export type CommanderAdapter = {
@@ -52,21 +53,29 @@ export function initCommand<ConfigType extends Types.OptionalTypeAny, O extends 
 	const argumentConfigKeyValue = new Argument('[pair]', 'config property value or just value, if the config is not an object');
 	const argumentConfigKey = new Argument('[key]', 'config property name');
 	const cfgCommand = new Command('config').aliases(['cfg']);
-	const cfgRealOption = new Option('--real', 'use default value(s) as fallback').default(false);
-	const cfgTypesOption = new Option('--types', 'show types').default(false);
+	const cfgNoColorOption = new Option('--no-color', 'disable colors').default(false);
+	const cfgTypesOption = new Option('--types', 'value types').default(false);
+	const cfgParsableOption = new Option('--parsable', 'parsable output').default(false);
+	const cfgModeOption = new Option('--mode [mode]', 'config mode').default('current' as config.ConfigGetMode).choices(['real', 'current', 'default']);
 
 	const cfgCommandPath = new Command('path').description('print the config file path');
 	const cfgCommandSet = new Command('set').description('set config values')
 		.addArgument(argumentConfigKeyValue)
-		.addOption(cfgRealOption)
+		.addOption(cfgModeOption)
+		.addOption(cfgNoColorOption)
+		.addOption(cfgParsableOption)
 		.addOption(cfgTypesOption);
 	const cfgCommandUnset = new Command('unset').description('delete config values, if specified, otherwise delete entire config')
 		.addArgument(argumentConfigKey)
-		.addOption(cfgRealOption)
+		.addOption(cfgModeOption)
+		.addOption(cfgNoColorOption)
+		.addOption(cfgParsableOption)
 		.addOption(cfgTypesOption);
 	const cfgCommandGet = new Command('get').description('print config values. You can use --real option to view real values')
 		.addArgument(argumentConfigKey)
-		.addOption(cfgRealOption)
+		.addOption(cfgModeOption)
+		.addOption(cfgNoColorOption)
+		.addOption(cfgParsableOption)
 		.addOption(cfgTypesOption);
 
 	cfgCommand.addCommand(cfgCommandPath.action(wrapAction(cfg, actionCfgPath)));
@@ -95,6 +104,8 @@ function wrapAction<ConfigType extends Types.OptionalTypeAny>(
 		if (!cfg.isObjectLike(0)) {
 			return `Configuration value is bad. ${error}`;
 		}
+
+		// // const options = arguments_.at(-2) as Record<string, unknown>;
 
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 		console.log(action(cfg, ...arguments_));

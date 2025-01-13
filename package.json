@@ -88,8 +88,18 @@
 		"typescript": "^5.7.3",
 		"xo": "^0.60.0"
 	},
-	"optionalDependencies": {
-		"commander": "^13.0.0"
+	"peerDependencies": {
+		"commander": "^12.1.0"
 	},
-	"keywords": []
+	"peerDependenciesMeta": {
+		"commander": {
+			"optional": true
+		}
+	},
+	"keywords": [
+		"config",
+		"type-check",
+		"validation",
+		"commander"
+	]
 }
