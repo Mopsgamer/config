@@ -1,11 +1,10 @@
-/* eslint-disable @typescript-eslint/no-dynamic-delete */
 import {
 	existsSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {format} from 'node:util';
 import {type ChalkInstance, Chalk} from 'chalk';
-import Types from './types.js';
-import {highlight, type ConfigHighlightOptions} from './utils/highlight.js';
+import {z} from 'zod';
+import {highlight, type ConfigHighlightOptions} from './highlight.js';
 
 /**
  * @returns Result and error string message from the thrower exception.
@@ -28,11 +27,6 @@ export function failThrow(Error: ErrorConstructor, message: string | undefined, 
 
 	throw new Error(message, options);
 }
-
-export type ConfigPair<ConfigType extends Types.OptionalTypeAny>
-= ConfigType extends Types.ObjectLike
-	? [key: keyof ConfigType, value: ConfigType[keyof ConfigType]]
-	: never;
 
 /**
  * `"real"` - values, with resolved default values.
@@ -84,74 +78,86 @@ export type ConfigGetPrintableOptions = {
 	parsable?: boolean;
 };
 
+export type Parser = {
+	parse(text: string): unknown;
+	stringify(value: unknown): string;
+};
 
-export type ConfigOptions<ConfigType extends Types.OptionalTypeAny> = {
+export type ConfigOptions<T extends z.ZodTypeAny> = {
 	/**
 	 * @see You can use the {@link https://www.npmjs.com/package/find-config?activeTab=readme  find-config} package for the path searching.
 	 */
 	path: string;
 	/**
-	 * Configuration type check.
-	 * @see {@link Types} have many useful methods.
+	 * Configuration schema validation.
 	 */
-	type: Types.TypeValidator<ConfigType>;
+	schema: T;
 	/**
 	 * @see yaml, jsonc, ini and other similar packages.
 	 * @default JSON
 	 */
-	parser?: Types.Parser;
+	parser?: Parser;
 };
 
 /**
  * The configuration manager.
  */
-export class Config<ConfigType extends Types.OptionalTypeAny> implements Required<ConfigOptions<ConfigType>> {
-	public readonly path;
-	public readonly parser;
-	public readonly type;
+export class Config<T extends z.ZodTypeAny> {
+	public readonly path: string;
+	public readonly parser: Parser;
+	public readonly schema: T;
 
-	private data: ConfigType | undefined;
+	private data: z.infer<T> | undefined;
 
-	constructor(options: ConfigOptions<ConfigType>) {
+	constructor(options: ConfigOptions<T>) {
 		this.path = options.path;
 		this.parser = options.parser ?? JSON;
-		this.type = options.type;
-		this.data = this.type.defaultVal;
+		this.schema = options.schema;
+
+		const result = this.schema.safeParse(undefined);
+		if (result.success) {
+			this.data = result.data;
+		}
 	}
 
 	/**
 	 * @returns A clone of the original data object.
 	 */
-	getData(): unknown {
+	getData(): z.infer<T> | undefined {
 		return structuredClone(this.data);
 	}
 
-	setData(data: ConfigType): void {
+	setData(data: z.infer<T>): void {
 		this.data = data;
 	}
 
 	/**
-     * Loads the config from the {@link path}, if satisfies the type check.
+     * Loads the config from the {@link path}, if satisfies the schema.
      * @returns The error message for each invalid configuration key.
      */
 	failLoad(): string | undefined {
 		let parsed: unknown;
-		try {
-			parsed = existsSync(this.path) ? this.parser.parse(readFileSync(this.path).toString()) : this.type.defaultVal;
-		} catch {
-			return `Unable to parse: ${this.path}.`;
+		if (existsSync(this.path)) {
+			try {
+				parsed = this.parser.parse(readFileSync(this.path).toString());
+			} catch {
+				return `Unable to parse: ${this.path}.`;
+			}
+		} else {
+			parsed = undefined;
 		}
 
-		const message = this.type.fail(parsed) ?? this.type.fail(this.data);
-		if (this.type.check(parsed, message)) {
-			this.data = parsed;
+		const result = this.schema.safeParse(parsed);
+		if (result.success) {
+			this.data = result.data;
+			return undefined;
 		}
 
-		return message;
+		return fromZodError(result.error);
 	}
 
 	/**
-     * Loads the config from the {@link path}, if satisfies the type check.
+     * Loads the config from the {@link path}, if satisfies the schema.
 	 * @throws The error message for each invalid configuration key.
      */
 	load() {
@@ -159,22 +165,28 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 	}
 
 	/**
-	 * Checks if the data is object-like.
+	 * Checks if the schema is an object.
 	 */
-	isObjectLike(error: string | undefined | 0): this is Config<Types.ObjectLike> {
-		const isStructOrObjectValidator = this.type.isObjectLike;
-		const isValidDataValue = this.type.check(this.data, error);
-		return isStructOrObjectValidator && isValidDataValue;
+	isObject(): boolean {
+		let s = this.schema;
+		while (s instanceof z.ZodOptional || s instanceof z.ZodDefault || s instanceof z.ZodNullable) {
+			s = s._def.innerType;
+		}
+		return s instanceof z.ZodObject;
 	}
 
 	/**
-     * Saves the partial config to the {@link path}. If there are no keys, the file will be deleted (if exists).
+     * Saves the config to the {@link path}. If there are no keys (for objects), the file will be deleted.
 	 * @param keep Do not delete the config file, for empty data object.
      * @return Error message for invalid write operation.
      */
 	failSave(keep = false): string | undefined {
-		const error = this.type.fail(this.data);
-		if (this.isObjectLike(error) && this.keyList({mode: 'current'}).length === 0) {
+		const result = this.schema.safeParse(this.data);
+		if (!result.success) {
+			return fromZodError(result.error);
+		}
+
+		if (this.isObject() && Object.keys(this.data || {}).length === 0) {
 			if (!existsSync(this.path) || keep) {
 				return;
 			}
@@ -183,19 +195,19 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 				rmSync(this.path);
 				return;
 			} catch {
-				return `Unuble to remove: ${this.path}.`;
+				return `Unable to remove: ${this.path}.`;
 			}
 		}
 
 		try {
 			writeFileSync(this.path, this.getDataString());
-		} catch {
-			return `Unuble to write: ${this.path}.`;
+		} catch (error: any) {
+			return `Unable to write: ${this.path}. ${error.message}`;
 		}
 	}
 
 	/**
-     * Saves the partial config to the file {@link path}. If there are no keys, the file will be deleted (if exists).
+     * Saves the config to the file {@link path}.
 	 * @param keep Do not delete the config file, for empty data object.
      * @throws Error message for invalid write operation.
      */
@@ -205,44 +217,41 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 
 	/**
      * Sets a new value for the specified configuration key.
-     * Expects a valid value.
      * @param key The name of the configuration key.
      * @param value The new value for the configuration key.
      */
-	failSet<T extends ConfigPair<Types.ObjectLike<ConfigType>>>(key: T[0], value: T[1]): string | undefined;
-	failSet(key: string, value: unknown): string | undefined;
 	failSet(key: string, value: unknown): string | undefined {
-		if (!this.isObjectLike(undefined)) {
-			return `Unable to set the key: '${key}'.`;
+		let s = this.schema;
+		while (s instanceof z.ZodOptional || s instanceof z.ZodDefault || s instanceof z.ZodNullable) {
+			s = s._def.innerType;
 		}
 
-		let validator: Types.TypeValidator | undefined;
-		if (this.type instanceof Types.TypeValidatorStruct) {
-			validator = this.type.getType(this.data as any, key)[0];
-		} else if (this.type instanceof Types.TypeValidatorObject) {
-			validator = this.type.valueType;
+		if (!(s instanceof z.ZodObject)) {
+			return `Unable to set the key: '${key}'. Schema is not an object.`;
 		}
 
-		if (!validator) {
+		const propertySchema = s.shape[key];
+		if (!propertySchema) {
+			if (s._def.unknownKeys === 'passthrough') {
+				(this.data ||= {} as any)[key] = value;
+				return;
+			}
 			return `Unable to set the key: '${key}'. Unknown property.`;
 		}
 
-		const error = validator.fail(value);
-		if (!validator.check(value, error)) {
-			return `Unable to set the key: '${key}'. Got: ${format('%o', value)}. ${error}`;
+		const result = propertySchema.safeParse(value);
+		if (!result.success) {
+			return `Unable to set the key: '${key}'. Got: ${format('%o', value)}. ${fromZodError(result.error)}`;
 		}
 
-		((this.data as Types.ObjectLike) ||= {})[key] = value;
+		(this.data ||= {} as any)[key] = result.data;
 	}
 
 	/**
      * Sets a new value for the specified configuration key.
-     * Expects a valid value.
      * @param key The name of the configuration key.
      * @param value The new value for the configuration key.
      */
-	set<T extends keyof ConfigType>(key: T, value: ConfigType[T]): void;
-	set(key: string, value: unknown): void;
 	set(key: string, value: unknown): void {
 		failThrow(TypeError, this.failSet(key, value));
 	}
@@ -253,66 +262,62 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
      * @param key The configuration key.
 	 * @returns An error message if the key does not exist.
      */
-	failUnset<T extends ConfigPair<ConfigType>>(key?: T[0]): string | undefined;
-	failUnset(key?: string): string | undefined;
 	failUnset(key?: string): string | undefined {
-		const error = this.type.fail(this.data);
-		if (!this.isObjectLike(error) || !this.data) {
-			return `Unable to unset the key: '${key}'. ${error}`;
+		if (!this.isObject()) {
+			return `Unable to unset the key: '${key}'. Schema is not an object.`;
 		}
+
+		if (this.data === undefined) return;
 
 		if (key !== undefined) {
-			return delete this.data[key] ? undefined : `Unable to unset the key: '${key}'.`;
+			return delete (this.data as any)[key] ? undefined : `Unable to unset the key: '${key}'.`;
 		}
 
-		const deleteErrorList: string[] = [];
-		for (const key of this.keyList({mode: 'current'})) {
-			if (!delete this.data[key]) {
-				deleteErrorList.push(key);
-			}
-		}
-
-		if (deleteErrorList.length > 0) {
-			return `Unable to unset keys: '${deleteErrorList.join('\', \'')}'.`;
+		for (const k of Object.keys(this.data as any)) {
+			delete (this.data as any)[k];
 		}
 	}
 
 	/**
      * Deletes the specified configuration key from the config.
-     * If the configuration key is not specified, then all properties will be deleted.
      * @param key The configuration key.
 	 * @throws An error message if the key does not exist.
      */
-	unset<T extends keyof ConfigType>(key?: T): void;
-	unset(key?: string): void;
 	unset(key?: string): void {
 		failThrow(Error, this.failUnset(key));
 	}
 
 	/**
-     * @returns An array of properties which defined in the configuration file.
+     * @returns An array of properties which defined in the configuration.
      */
 	keyList(options?: ConfigKeyListOptions): string[] {
-		if (!this.isObjectLike(undefined)) {
-			throw new TypeError('Unable to list keys.');
-		}
-
 		const {mode = 'current'} = options ?? {};
 
-		if (mode === 'real' && this.type instanceof Types.TypeValidatorStruct) {
-			return Array.from(Object.entries(this.type.properties).filter(
-				([key, value]) => (this.data?.[key] ?? value) !== undefined,
-			)).map(([key]) => key);
+		let s = this.schema;
+		while (s instanceof z.ZodOptional || s instanceof z.ZodDefault || s instanceof z.ZodNullable) {
+			s = s._def.innerType;
 		}
 
-		if (mode === 'default' && this.type instanceof Types.TypeValidatorStruct) {
-			return Array.from(Object.entries(this.type.properties).filter(
-				([, value]) => (value) !== undefined,
-			)).map(([key]) => key);
+		if (!(s instanceof z.ZodObject)) {
+			throw new TypeError('Unable to list keys. Schema is not an object.');
+		}
+
+		if (mode === 'default') {
+			return Object.keys(s.shape);
+		}
+
+		if (mode === 'real') {
+			const keys = new Set(Object.keys(s.shape));
+			if (this.data) {
+				for (const k of Object.keys(this.data as any)) {
+					keys.add(k);
+				}
+			}
+			return Array.from(keys);
 		}
 
 		// 'current'
-		return this.data ? Object.keys(this.data) : [];
+		return this.data ? Object.keys(this.data as any) : [];
 	}
 
 	/**
@@ -320,33 +325,37 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
      * @param options The options.
      * @returns The value for the specified key.
      */
-	get<T extends keyof ConfigType>(key: T, options?: ConfigGetOptions): ConfigType[T];
-	get(key: string, options?: ConfigGetOptions): unknown;
 	get(key: string, options?: ConfigGetOptions): unknown {
-		if (!this.isObjectLike(undefined)) {
-			throw new TypeError('Unable to get the key or keys.');
+		if (!this.isObject()) {
+			throw new TypeError('Unable to get the key. Schema is not an object.');
 		}
 
 		const {mode = 'real'} = options ?? {};
 
-		let value = ((this.data as Types.ObjectLike) ||= {})[key];
-		if (mode === 'default' || (mode === 'real' && value === undefined)) {
-			value = this.type.defaultVal![key];
+		if (mode === 'default') {
+			const result = this.schema.safeParse(undefined);
+			return result.success ? (result.data as any)?.[key] : undefined;
+		}
+
+		let value = (this.data as any)?.[key];
+		if (mode === 'real' && value === undefined) {
+			const result = this.schema.safeParse(undefined);
+			if (result.success) {
+				value = (result.data as any)?.[key];
+			}
 		}
 
 		return value;
 	}
 
 	/**
-	 * For command-line printing purposes. Uses {@link format}, not {@link Types.defaultParser}.
+	 * For command-line printing purposes.
      * @returns Printable properties string.
      */
-	getPrintable<T extends ConfigPair<ConfigType>[0]>(keys?: T | T[], options?: ConfigGetPrintableOptions): string;
-	getPrintable(keys?: string | string[], options?: ConfigGetPrintableOptions): string;
 	getPrintable(keys?: string | string[], options?: ConfigGetPrintableOptions): string {
 		const {mode = 'current', types = true, syntax = {}, parsable} = options ?? {};
-		if (this.isObjectLike(0)) {
-			const {type} = this;
+
+		if (this.isObject()) {
 			keys ??= this.keyList({mode});
 
 			if (typeof keys === 'string') {
@@ -356,40 +365,18 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 			if (parsable) {
 				return keys.map(key => {
 					const value = format('%o', this.get(key, {mode}));
-					if (types) {
-						const {typeName} = type instanceof Types.TypeValidatorStruct
-							? type.properties[key]
-							: (type instanceof Types.TypeValidatorObject
-								? type.valueType : type);
-						return `${key}\n${value}\n${typeName}`;
-					}
-
 					return `${key}\n${value}`;
 				}).join('\n');
 			}
 
-			// eslint-disable-next-line unicorn/no-array-reduce
 			const keyMaxLength: number = keys.reduce((maxLength, key) => Math.max(maxLength, key.length), 0);
 			const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
 			return keys.map((key): string => {
 				const value = format('%o', this.get(key, {mode}));
-				const {typeName} = type instanceof Types.TypeValidatorStruct
-					? type.properties[key]
-					: (type instanceof Types.TypeValidatorObject
-						? type.valueType : type);
 				const pad = keyMaxLength - key.length;
 
 				const coloredKey = chalk.hex('#FFBC42')(key);
 				const coloredValue = highlight(value, syntax);
-				if (types) {
-					const coloredType = chalk.dim(highlight(typeName, syntax));
-					return format(
-						`${' '.repeat(pad)}%s ${highlight('=', syntax)} %s${highlight(':', syntax)} %s`,
-						coloredKey,
-						coloredValue,
-						coloredType,
-					);
-				}
 
 				return format(
 					`${' '.repeat(pad)}%s ${highlight('=', syntax)} %s`,
@@ -399,49 +386,35 @@ export class Config<ConfigType extends Types.OptionalTypeAny> implements Require
 			}).join('\n');
 		}
 
+		const value = format('%o', this.data);
 		if (parsable) {
-			const value = format('%o', this.data);
-			if (types) {
-				const {typeName} = this.type;
-				return `${value}\n${typeName}`;
-			}
-
 			return value;
 		}
 
-		const value = format('%o', this.data);
 		const chalk: ChalkInstance = syntax?.chalk ?? new Chalk();
-		const {typeName} = this.type;
-
-		const coloredKey = chalk.hex('#FFBC42')(this.data);
+		const coloredKey = chalk.hex('#FFBC42')(String(this.data));
 		const coloredValue = highlight(value, syntax);
-		if (types) {
-			const coloredType = chalk.dim(highlight(typeName, syntax));
-			return format(
-				`%s${highlight(':', syntax)} %s`,
-				coloredKey,
-				coloredValue,
-				coloredType,
-			);
-		}
 
 		return format(
-			'%s',
+			'%s: %s',
 			coloredKey,
 			coloredValue,
 		);
 	}
 
 	/**
-	 * Stringify the config data with the type checking.
+	 * Stringify the config data with the schema checking.
 	 */
 	getDataString() {
-		const message = this.type.fail(this.data);
-		if (!this.type.check(this.data, message)) {
-			throw new TypeError(message);
+		const result = this.schema.safeParse(this.data);
+		if (!result.success) {
+			throw new TypeError(fromZodError(result.error));
 		}
 
-		return this.type.stringify(this.data as never);
+		return this.parser.stringify(result.data);
 	}
 }
 
+function fromZodError(error: z.ZodError): string {
+	return error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
+}

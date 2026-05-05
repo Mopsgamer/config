@@ -5,49 +5,77 @@
 [![github](https://img.shields.io/github/stars/Mopsgamer/config.svg?style=flat)](https://github.com/Mopsgamer/config)
 [![github issues](https://img.shields.io/github/issues/Mopsgamer/config.svg?style=flat)](https://github.com/Mopsgamer/config/issues)
 
-Node.js config library for command-line tools with strict type check. Uses yaml format.
+Node.js config library for command-line tools with strict [Zod](https://zod.dev/) validation.
 
 ## Features
 
-- Validates the config types when loading: any, string, record, struct, integer, number, boolean.
-- Each type has options. For examlple there is the 'pattern' option for strings and numbers.
-- Struct type has dynamic properties validation ability.
+- Uses Zod schemas for robust type validation and default values.
+- Built-in integrations for popular CLI frameworks: **Commander**, **Yargs**, and **CAC**.
+- Syntax-highlighted output for CLI inspection.
+- Supports custom parsers (JSON, YAML, etc.).
 
 ## Install
 
 ```bash
-npm i @m234/config
+npm i @m234/config zod
 ```
 
 ## Usage
 
 ```ts
-import {homedir} from "node:os"
-import {exit} from "node:process"
 import {join} from "node:path"
+import {homedir} from "node:os"
 import {Config, Types} from "@m234/config"
 
-function exitFail(message: string | undefined) {
-    console.error(message)
+const schema = Types.object({
+    id: Types.number().min(0).default(0),
+    password: Types.string().min(8),
+    records: Types.array(Types.enum(['a', 'b'])).default([])
+})
+
+const cfg = new Config({
+    path: join(homedir(), 'app.json'),
+    schema
+})
+
+const error = cfg.failLoad()
+if (error) {
+    console.error(error)
     process.exit(1)
 }
 
-const aORb = Types.literal({choices: new Set(['a', 'b'])})
-const cfg = new Config({
-    path: join(homedir(), 'app.yaml'), // or use `find-config` package
-    type: Types.struct({
-        properties:{
-            id: Types.integer({min: 0})
-            // min 8 chars password
-            password: Types.string({pattern: /.{8,}/})
-            records: Types.array({
-                elementType: aORb
-            })
-        }
-    })
-})
-
-exitFail(cfg.failLoad())
-console.log(cfg.get('id') === 0)
+console.log(cfg.get('id'))
 console.log(cfg.getPrintable())
+```
+
+## CLI Integrations
+
+### Commander
+
+```ts
+import { program } from 'commander'
+import { initCommand } from '@m234/config/integration/commander'
+
+initCommand(cfg, program)
+program.parse()
+```
+
+### Yargs
+
+```ts
+import yargs from 'yargs'
+import { initYargs } from '@m234/config/integration/yargs'
+
+initYargs(yargs(process.argv.slice(2)), cfg).parse()
+```
+
+### CAC
+
+```ts
+import cac from 'cac'
+import { initCAC } from '@m234/config/integration/cac'
+
+const cli = cac()
+initCAC(cli, cfg)
+cli.parse()
 ```

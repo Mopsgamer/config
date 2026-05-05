@@ -1,2 +1,2 @@
 export * from './config.js';
-export * from './types.js';
+export {Types} from './types.js';

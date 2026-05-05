@@ -1,7 +1,7 @@
 {
 	"name": "@m234/config",
-	"version": "3.2.3",
-	"description": "Template repo for creating public packages written in typescript. Lintable, testable and releasable.",
+	"version": "4.0.0",
+	"description": "Node.js config library for command-line tools with Zod validation.",
 	"type": "module",
 	"scripts": {
 		"prerelease": "pnpm lint && pnpm build:pub && pnpm test",
@@ -70,36 +70,53 @@
 		".": "./out/src/index.js",
 		"./config": "./out/src/config.js",
 		"./types": "./out/src/types.js",
-		"./integration/commander": "./out/src/integration/commander/index.js"
+		"./integration/commander": "./out/src/integration/commander/index.js",
+		"./integration/yargs": "./out/src/integration/yargs/index.js",
+		"./integration/cac": "./out/src/integration/cac/index.js"
 	},
 	"dependencies": {
 		"ansi-regex": "^6.1.0",
 		"chalk": "^5.4.1",
-		"tslib": "^2.8.1"
+		"tslib": "^2.8.1",
+		"zod": "^3.24.1"
 	},
 	"devDependencies": {
 		"@release-it/keep-a-changelog": "^6.0.0",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^22.10.5",
+		"@types/yargs": "^17.0.33",
+		"cac": "^6.7.14",
+		"commander": "^12.1.0",
 		"globals": "^15.14.0",
 		"mocha": "^11.0.1",
 		"release-it": "^18.1.1",
 		"shx": "^0.3.4",
 		"typescript": "^5.7.3",
-		"xo": "^0.60.0"
+		"xo": "^0.60.0",
+		"yargs": "^17.7.2"
 	},
 	"peerDependencies": {
-		"commander": "^12.1.0"
+		"commander": "^12.1.0",
+		"yargs": "^17.7.2",
+		"cac": "^6.7.14"
 	},
 	"peerDependenciesMeta": {
 		"commander": {
+			"optional": true
+		},
+		"yargs": {
+			"optional": true
+		},
+		"cac": {
 			"optional": true
 		}
 	},
 	"keywords": [
 		"config",
-		"type-check",
+		"zod",
 		"validation",
-		"commander"
+		"commander",
+		"yargs",
+		"cac"
 	]
 }

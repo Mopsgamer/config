@@ -1,39 +1,19 @@
 import assert from 'node:assert';
-import * as config from '../src/index.js';
+import {z} from 'zod';
+import {Config} from '../src/config.js';
 
-const getCfg = (optional: boolean, asLoaded: boolean) => {
-	const cfg = new config.Config({
-		path: '',
-		type: config.Types.struct({
-			optional,
-			properties: {
-				testprop: config.Types.number({optional: true}),
-			},
-		}),
-	});
-	if (asLoaded) {
-		cfg.setData(cfg.type.defaultVal!);
-	}
-
-	return cfg;
-};
-
-it('type:struct is object before load', () => {
-	const cfg = getCfg(false, false);
-	assert(cfg.isObjectLike(0));
+it('isObject should identify object schemas', () => {
+    const cfg = new Config({
+        path: '',
+        schema: z.object({ test: z.string() })
+    });
+    assert(cfg.isObject());
 });
 
-it('type:?struct is object before load', () => {
-	const cfg = getCfg(true, false);
-	assert(cfg.isObjectLike(0));
-});
-
-it('type:struct is object after load', () => {
-	const cfg = getCfg(false, true);
-	assert(cfg.isObjectLike(0));
-});
-
-it('type:?struct is object after load', () => {
-	const cfg = getCfg(true, true);
-	assert(cfg.isObjectLike(0));
+it('isObject should identify optional object schemas', () => {
+    const cfg = new Config({
+        path: '',
+        schema: z.object({ test: z.string() }).optional()
+    });
+    assert(cfg.isObject());
 });
