@@ -284,12 +284,13 @@ export namespace Types {
 		/**
 		 * Check using {@link properties} and {@link dynamicProperties}.
 		 */
-		getType(object: T, key: (keyof T) & string): [
+		getType(object: T | undefined, key: (keyof T) & string): [
 			propertyType: TypeValidator<T[keyof T]> | undefined,
 			DynamicPropertyCalculation<T>,
 		] {
-			if (!Object.hasOwn(object, key)) {
-				return [undefined, {}];
+			if (!object || !Object.hasOwn(object, key)) {
+				const propertyType = this.properties[key] as TypeValidator<T[keyof T]> | undefined;
+				return [propertyType, {}];
 			}
 
 			let dynamic: DynamicPropertyCalculation<T> | undefined = typeof this.dynamicProperties === 'function'
@@ -324,11 +325,25 @@ export namespace Types {
 			parser,
 			typeName: 'any',
 			fail(value) {
-				const validatorList = [array(), object(), boolean(), string(), number()];
+				if (value === undefined || value === null) {
+					return;
+				}
+
+				const validatorList = [boolean(), string(), number(), array(), object()];
 				for (const validator of validatorList) {
 					if (validator.check(value, validator.fail(value))) {
 						return;
 					}
+				}
+
+				if (value instanceof Date) {
+					return;
+				}
+
+				// If it's a plain object that didn't match the object() validator (which it should have),
+				// or if it's any other type, we try to be permissive.
+				if (typeof value === 'object' || typeof value === 'function') {
+					return;
 				}
 
 				return `Can not be represented as any. Got: ${format('%o', value)}.`;
